@@ -15,7 +15,6 @@ export default function Sidebar() {
     <aside className="w-64 bg-slate-900 flex flex-col h-full shrink-0">
       <div className="px-5 py-6 border-b border-slate-700">
         <div className="text-white font-bold text-base leading-tight">SAP Assessor Tool</div>
-        <div className="text-slate-400 text-xs mt-1">Melin Consultants</div>
       </div>
       <nav className="flex-1 px-3 py-4 space-y-1">
         {navItems.map((item) => {

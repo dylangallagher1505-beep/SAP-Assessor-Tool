@@ -3,8 +3,8 @@ import './globals.css';
 import Sidebar from '@/components/Sidebar';
 
 export const metadata: Metadata = {
-  title: 'SAP Assessor Tool — Melin Consultants',
-  description: 'SAP 10.2 assessment toolkit for energy assessors',
+  title: 'SAP Assessor Tool',
+  description: 'SAP 10.2 assessment toolkit',
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
