@@ -196,9 +196,10 @@ function computeZoneSlopes(zone: RoofZone, northDeg: number): RoofSlope[] {
 const GRID_SIZE = 600;
 const METRES_VISIBLE = 20;
 const PX_PER_M = GRID_SIZE / METRES_VISIBLE;
-const SNAP = 0.5;
+const SNAP = 0.1;
 
 function snap(v: number) { return Math.round(v / SNAP) * SNAP; }
+function snap2dp(v: number) { return Math.round(v * 100) / 100; }
 function toSVG(m: number) { return m * PX_PER_M; }
 function toM(px: number) { return px / PX_PER_M; }
 
@@ -221,9 +222,10 @@ const WALL_3D_COLOR: Record<WallType, number> = {
 };
 
 // ─── 3D Viewer ────────────────────────────────────────────────────────────────
-function ThreeViewer({ points, storeyHeight, roofType, wallSegs, selectedWallIdx, onWallClick }: {
+function ThreeViewer({ points, storeyHeight, storeyBase, roofType, wallSegs, selectedWallIdx, onWallClick }: {
   points: Point[];
   storeyHeight: number;
+  storeyBase: number;
   roofType: 'flat' | 'pitched';
   wallSegs: WallSegInfo[];
   selectedWallIdx: number | null;
@@ -269,7 +271,7 @@ function ThreeViewer({ points, storeyHeight, roofType, wallSegs, selectedWallIdx
     const floorGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.1, bevelEnabled: false });
     const floorMesh = new THREE.Mesh(floorGeo, new THREE.MeshLambertMaterial({ color: '#e2e8f0', side: THREE.DoubleSide }));
     floorMesh.rotation.x = -Math.PI / 2;
-    floorMesh.position.y = -0.1;
+    floorMesh.position.y = storeyBase - 0.1;
     scene.add(floorMesh);
 
     // Individual wall meshes — one per segment, coloured by type
@@ -292,7 +294,7 @@ function ThreeViewer({ points, storeyHeight, roofType, wallSegs, selectedWallIdx
         emissiveIntensity: isSelected ? 0.4 : 0,
       });
       const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(midX, storeyHeight / 2, midZ);
+      mesh.position.set(midX, storeyBase + storeyHeight / 2, midZ);
       mesh.rotation.y = -angle;
       mesh.castShadow = true;
       scene.add(mesh);
@@ -301,7 +303,7 @@ function ThreeViewer({ points, storeyHeight, roofType, wallSegs, selectedWallIdx
       const wireMat = new THREE.MeshBasicMaterial({ color: 0x14532d, wireframe: true, opacity: 0.1, transparent: true });
       const wireMesh = new THREE.Mesh(geo, wireMat);
       wireMesh.position.copy(mesh.position);
-      wireMesh.rotation.copy(mesh.rotation);
+      wireMesh.rotation.y = -angle;
       scene.add(wireMesh);
 
       wallMeshData.push({ mesh, idx: seg.i });
@@ -311,7 +313,7 @@ function ThreeViewer({ points, storeyHeight, roofType, wallSegs, selectedWallIdx
       const roofGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.2, bevelEnabled: false });
       const roofMesh = new THREE.Mesh(roofGeo, new THREE.MeshLambertMaterial({ color: '#86efac' }));
       roofMesh.rotation.x = -Math.PI / 2;
-      roofMesh.position.y = storeyHeight;
+      roofMesh.position.y = storeyBase + storeyHeight;
       scene.add(roofMesh);
     } else {
       const xs = centred.map(p => p.x);
@@ -321,7 +323,7 @@ function ThreeViewer({ points, storeyHeight, roofType, wallSegs, selectedWallIdx
       const spanX = maxX - minX;
       const spanZ = maxZ - minZ;
       const ridgeH = Math.min(spanX, spanZ) * 0.45;
-      const ridgeY = storeyHeight + ridgeH;
+      const ridgeY = storeyBase + storeyHeight + ridgeH;
       const ridgeAlongX = spanX >= spanZ;
 
       function projectToRidge(x: number, z: number): THREE.Vector3 {
@@ -332,7 +334,7 @@ function ThreeViewer({ points, storeyHeight, roofType, wallSegs, selectedWallIdx
         }
       }
 
-      const eaveVerts = centred.map(p => new THREE.Vector3(p.x, storeyHeight, -p.y));
+      const eaveVerts = centred.map(p => new THREE.Vector3(p.x, storeyBase + storeyHeight, -p.y));
       const positions: number[] = [];
       for (let i = 0; i < eaveVerts.length; i++) {
         const a = eaveVerts[i];
@@ -376,7 +378,7 @@ function ThreeViewer({ points, storeyHeight, roofType, wallSegs, selectedWallIdx
         spherical.radius * Math.cos(spherical.phi),
         spherical.radius * Math.sin(spherical.phi) * Math.cos(spherical.theta),
       );
-      camera.lookAt(0, storeyHeight / 2, 0);
+      camera.lookAt(0, storeyBase + storeyHeight / 2, 0);
     }
     updateCamera();
 
@@ -435,7 +437,7 @@ function ThreeViewer({ points, storeyHeight, roofType, wallSegs, selectedWallIdx
       if (el.contains(renderer.domElement)) el.removeChild(renderer.domElement);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [points, storeyHeight, roofType, wallSegs, selectedWallIdx]);
+  }, [points, storeyHeight, storeyBase, roofType, wallSegs, selectedWallIdx]);
 
   if (points.length < 3) {
     return (
@@ -459,7 +461,7 @@ function WallHistoryRow({ index, dir, len, onDelete }: { index: number; dir: Dir
     <div className="flex items-center justify-between gap-2 py-1 px-2 rounded-lg" style={{ background: '#f0fdf4' }}>
       <span className="text-xs font-black" style={{ color: '#86efac' }}>#{index + 1}</span>
       <span className="text-sm font-black" style={{ color: '#14532d' }}>{arrow[dir]} {dir}</span>
-      <span className="text-sm font-mono font-bold" style={{ color: '#334155' }}>{len.toFixed(1)} m</span>
+      <span className="text-sm font-mono font-bold" style={{ color: '#334155' }}>{len.toFixed(2)} m</span>
       <button onClick={onDelete} className="text-xs px-1.5 py-0.5 rounded" style={{ color: '#ef4444', background: '#fef2f2' }}>✕</button>
     </div>
   );
@@ -471,6 +473,7 @@ export default function FloorPlanTool() {
   const [hoverPoint, setHoverPoint] = useState<Point | null>(null);
   const [closed, setClosed] = useState(false);
   const [storeyHeight, setStoreyHeight] = useState(2.4);
+  const [storeyBase, setStoreyBase] = useState(0); // floor level above ground
   const [roofType, setRoofType] = useState<'flat' | 'pitched'>('flat');
   const [inputMode, setInputMode] = useState<InputMode>('draw');
   const [northAngle, setNorthAngle] = useState(0); // degrees CW from top = North
@@ -674,7 +677,7 @@ export default function FloorPlanTool() {
   const addWall = useCallback(() => {
     const len = parseFloat(lenInput);
     if (!len || len <= 0 || closed) return;
-    const snapped = Math.round(len * 10) / 10;
+    const snapped = snap2dp(len);
     setWalls(prev => [...prev, { dir, len: snapped }]);
     setLenInput('');
     setTimeout(() => lenRef.current?.focus(), 0);
@@ -787,9 +790,19 @@ export default function FloorPlanTool() {
         </div>
 
         <div>
+          <label className="block text-xs font-black uppercase tracking-widest mb-1" style={{ color: '#64748b' }}>Floor Level (m)</label>
+          <input
+            type="number" step="0.01" min="0" max="30"
+            value={storeyBase}
+            onChange={e => setStoreyBase(parseFloat(e.target.value) || 0)}
+            className="rounded-xl px-3 py-2 text-sm font-mono font-semibold w-24 focus:outline-none"
+            style={{ border: '2px solid #e2e8f0' }}
+          />
+        </div>
+        <div>
           <label className="block text-xs font-black uppercase tracking-widest mb-1" style={{ color: '#64748b' }}>Storey Height (m)</label>
           <input
-            type="number" step="0.05" min="2" max="6"
+            type="number" step="0.01" min="0.5" max="6"
             value={storeyHeight}
             onChange={e => setStoreyHeight(parseFloat(e.target.value) || 2.4)}
             className="rounded-xl px-3 py-2 text-sm font-mono font-semibold w-24 focus:outline-none"
@@ -882,7 +895,7 @@ export default function FloorPlanTool() {
             <span className="text-xs font-black uppercase tracking-widest" style={{ color: layer === 'roof' ? '#6366f1' : '#14532d' }}>
               {layer === 'roof' ? '2D ROOF PLAN' : '2D PLAN VIEW'}
             </span>
-            <span className="text-xs font-medium" style={{ color: '#86efac' }}>grid: 1m · snap: 0.5m</span>
+            <span className="text-xs font-medium" style={{ color: '#86efac' }}>grid: 1m · snap: 0.1m</span>
           </div>
 
           <div className="relative flex-1 overflow-hidden">
@@ -1130,7 +1143,7 @@ export default function FloorPlanTool() {
                     return (
                       <g key={seg.i}>
                         <text x={mx + nx} y={my + ny} textAnchor="middle" fontSize={9} fill={WALL_COLOR[seg.type]} fontWeight="700">
-                          {ORIENT_ARROW[seg.orientation]} {seg.len.toFixed(1)}m
+                          {ORIENT_ARROW[seg.orientation]} {seg.len.toFixed(2)}m
                         </text>
                       </g>
                     );
@@ -1143,7 +1156,7 @@ export default function FloorPlanTool() {
                     const my = (toSVG(a.y) + toSVG(b.y)) / 2;
                     return (
                       <text key={i} x={mx} y={my - 6} textAnchor="middle" fontSize={9} fill="#14532d" fontWeight="700">
-                        {w.len.toFixed(1)}m
+                        {w.len.toFixed(2)}m
                       </text>
                     );
                   })}
@@ -1248,7 +1261,7 @@ export default function FloorPlanTool() {
                   className="mt-2 w-full py-2 rounded-lg text-sm font-black"
                   style={{ background: '#14532d', color: 'white' }}
                 >
-                  ✓ Close shape — back to start ({distToStart.toFixed(1)}m remaining)
+                  ✓ Close shape — back to start ({distToStart.toFixed(2)}m remaining)
                 </button>
               )}
             </div>
@@ -1349,6 +1362,7 @@ export default function FloorPlanTool() {
           <ThreeViewer
             points={closed ? activePoints : []}
             storeyHeight={storeyHeight}
+            storeyBase={storeyBase}
             roofType={roofType}
             wallSegs={wallSegs}
             selectedWallIdx={selectedWallIdx}
@@ -1532,7 +1546,8 @@ export default function FloorPlanTool() {
                 <div style={{ borderTop: '1px dashed #dcfce7', paddingTop: 12 }}>
                   <div className="text-xs space-y-1" style={{ color: '#94a3b8' }}>
                     <div>• North = {northAngle}° CW from canvas up</div>
-                    <div>• Storey height: {storeyHeight}m</div>
+                    <div>• Floor level: +{storeyBase.toFixed(2)}m · Height: {storeyHeight.toFixed(2)}m</div>
+                    <div>• Ceiling at +{(storeyBase + storeyHeight).toFixed(2)}m</div>
                     <div>• Roof (3D): {roofType === 'pitched' ? 'pitched (×1.2)' : 'flat'}</div>
                     <div>• Click walls on plan to change type</div>
                   </div>
