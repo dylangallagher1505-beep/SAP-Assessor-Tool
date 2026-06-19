@@ -267,52 +267,20 @@ function ThreeViewer({ points, storeyHeight, storeyBase, roofType, wallSegs, sel
     for (let i = 1; i < centred.length; i++) shape.lineTo(centred[i].x, -centred[i].y);
     shape.closePath();
 
-    // Floor slab
-    const floorGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.1, bevelEnabled: false });
-    const floorMesh = new THREE.Mesh(floorGeo, new THREE.MeshLambertMaterial({ color: '#e2e8f0', side: THREE.DoubleSide }));
-    floorMesh.rotation.x = -Math.PI / 2;
-    floorMesh.position.y = storeyBase - 0.1;
-    scene.add(floorMesh);
+    // ── Building solid — single ExtrudeGeometry; roof is guaranteed flush ────────
+    const buildingGeo = new THREE.ExtrudeGeometry(shape, { depth: storeyHeight, bevelEnabled: false });
+    const buildingMesh = new THREE.Mesh(buildingGeo, new THREE.MeshLambertMaterial({ color: '#d4edda', side: THREE.DoubleSide }));
+    buildingMesh.rotation.x = -Math.PI / 2;
+    buildingMesh.position.y = storeyBase;
+    buildingMesh.castShadow = true;
+    scene.add(buildingMesh);
 
-    // Building body — single ExtrudeGeometry so walls + roof are always perfectly flush
-    const wallMat = new THREE.MeshLambertMaterial({ color: '#4ade80', side: THREE.DoubleSide });
-    const wallGeo = new THREE.ExtrudeGeometry(shape, { depth: storeyHeight, bevelEnabled: false });
-    const wallMesh = new THREE.Mesh(wallGeo, wallMat);
-    wallMesh.rotation.x = -Math.PI / 2;
-    wallMesh.position.y = storeyBase;
-    wallMesh.castShadow = true;
-    scene.add(wallMesh);
+    const buildingWire = new THREE.Mesh(buildingGeo, new THREE.MeshBasicMaterial({ color: '#14532d', wireframe: true, opacity: 0.12, transparent: true }));
+    buildingWire.rotation.x = -Math.PI / 2;
+    buildingWire.position.y = storeyBase;
+    scene.add(buildingWire);
 
-    // Coloured wall-type overlay — a thin PlaneGeometry on each outer wall face
-    // positioned exactly on the polygon edge (zero offset, exact perimeter)
-    for (const seg of wallSegs) {
-      const midX = (seg.a.x + seg.b.x) / 2 - cx;
-      const midZ = -((seg.a.y + seg.b.y) / 2 - cy);
-      const angle = Math.atan2(seg.b.y - seg.a.y, seg.b.x - seg.a.x);
-      const color = WALL_3D_COLOR[seg.type];
-      const planeGeo = new THREE.PlaneGeometry(seg.len, storeyHeight);
-      const planeMat = new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: 0.55 });
-      const plane = new THREE.Mesh(planeGeo, planeMat);
-      plane.position.set(midX, storeyBase + storeyHeight / 2, midZ);
-      plane.rotation.y = -angle;
-      scene.add(plane);
-    }
-
-    // Per-wall invisible hit volumes for raycasting
-    const wallMeshData: { mesh: THREE.Mesh; idx: number }[] = [];
-    for (const seg of wallSegs) {
-      const midX = (seg.a.x + seg.b.x) / 2 - cx;
-      const midZ = -((seg.a.y + seg.b.y) / 2 - cy);
-      const angle = Math.atan2(seg.b.y - seg.a.y, seg.b.x - seg.a.x);
-      const hitGeo = new THREE.BoxGeometry(seg.len, storeyHeight, 0.6);
-      const hitMesh = new THREE.Mesh(hitGeo, new THREE.MeshBasicMaterial({ visible: false }));
-      hitMesh.position.set(midX, storeyBase + storeyHeight / 2, midZ);
-      hitMesh.rotation.y = -angle;
-      scene.add(hitMesh);
-      wallMeshData.push({ mesh: hitMesh, idx: seg.i });
-    }
-
-    // Selected wall highlight
+    // Selected wall highlight — coloured transparent plane on the face
     if (selectedWallIdx !== null) {
       const sel = wallSegs.find(s => s.i === selectedWallIdx);
       if (sel) {
@@ -320,7 +288,7 @@ function ThreeViewer({ points, storeyHeight, storeyBase, roofType, wallSegs, sel
         const midZ = -((sel.a.y + sel.b.y) / 2 - cy);
         const angle = Math.atan2(sel.b.y - sel.a.y, sel.b.x - sel.a.x);
         const hlGeo = new THREE.PlaneGeometry(sel.len, storeyHeight);
-        const hlMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, transparent: true, opacity: 0.5 });
+        const hlMat = new THREE.MeshBasicMaterial({ color: WALL_3D_COLOR[sel.type], side: THREE.DoubleSide, transparent: true, opacity: 0.55 });
         const hlMesh = new THREE.Mesh(hlGeo, hlMat);
         hlMesh.position.set(midX, storeyBase + storeyHeight / 2, midZ);
         hlMesh.rotation.y = -angle;
@@ -329,7 +297,7 @@ function ThreeViewer({ points, storeyHeight, storeyBase, roofType, wallSegs, sel
     }
 
     if (roofType === 'flat') {
-      const roofGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.15, bevelEnabled: false });
+      const roofGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.2, bevelEnabled: false });
       const roofMesh = new THREE.Mesh(roofGeo, new THREE.MeshLambertMaterial({ color: '#86efac' }));
       roofMesh.rotation.x = -Math.PI / 2;
       roofMesh.position.y = storeyBase + storeyHeight;
@@ -411,16 +379,27 @@ function ThreeViewer({ points, storeyHeight, storeyBase, roofType, wallSegs, sel
       const ddy = e.clientY - mouseDownPos.y;
       const wasDrag = Math.sqrt(ddx * ddx + ddy * ddy) > 4;
       isDragging = false;
-      if (!wasDrag && wallMeshData.length > 0) {
+      if (!wasDrag && wallSegs.length > 0) {
         const rect = el.getBoundingClientRect();
         mouse2D.x = ((e.clientX - rect.left) / W) * 2 - 1;
         mouse2D.y = -((e.clientY - rect.top) / H) * 2 + 1;
         raycaster.setFromCamera(mouse2D, camera);
-        const meshes = wallMeshData.map(w => w.mesh);
-        const hits = raycaster.intersectObjects(meshes);
-        if (hits.length > 0) {
-          const hit = wallMeshData.find(w => w.mesh === hits[0].object);
-          if (hit) { onWallClick(hit.idx); return; }
+        const hits = raycaster.intersectObject(buildingMesh);
+        if (hits.length > 0 && hits[0].face) {
+          // Transform face normal to world space
+          const fn = hits[0].face.normal.clone().applyQuaternion(buildingMesh.quaternion);
+          // Only side faces have near-zero Y component; top/bottom have Y≈±1
+          if (Math.abs(fn.y) < 0.2) {
+            let bestIdx = -1, bestDot = -1;
+            for (const seg of wallSegs) {
+              const dx = seg.b.x - seg.a.x, dy = seg.b.y - seg.a.y;
+              // Expected world normal for this edge (works for both CW and CCW via abs)
+              const enx = dy / seg.len, enz = -dx / seg.len;
+              const dot = Math.abs(fn.x * enx + fn.z * enz);
+              if (dot > bestDot) { bestDot = dot; bestIdx = seg.i; }
+            }
+            if (bestDot > 0.85) { onWallClick(bestIdx); return; }
+          }
         }
         onWallClick(null);
       }
