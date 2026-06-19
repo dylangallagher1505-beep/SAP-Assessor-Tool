@@ -94,7 +94,7 @@ function applyDir(pt: Point, dir: Dir, len: number): Point {
   }
 }
 
-// ─── Roof geometry helpers ─────────────────────────────────────────────────────────
+// ─── Roof geometry helpers ────────────────────────────────────────────────────
 function sideOfLine(p: Point, a: Point, b: Point): number {
   return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
 }
@@ -204,11 +204,30 @@ function toM(px: number) { return px / PX_PER_M; }
 
 const ORIENT_ARROW: Record<Orientation, string> = { North: '↑', East: '→', South: '↓', West: '←' };
 
+// ─── Wall segment type (shared between 3D viewer and main) ────────────────────
+interface WallSegInfo {
+  i: number;
+  a: Point; b: Point;
+  len: number;
+  orientation: Orientation;
+  area: number;
+  type: WallType;
+}
+
+const WALL_3D_COLOR: Record<WallType, number> = {
+  external: 0x16a34a,
+  party: 0xf59e0b,
+  internal: 0x94a3b8,
+};
+
 // ─── 3D Viewer ────────────────────────────────────────────────────────────────
-function ThreeViewer({ points, storeyHeight, roofType }: {
+function ThreeViewer({ points, storeyHeight, roofType, wallSegs, selectedWallIdx, onWallClick }: {
   points: Point[];
   storeyHeight: number;
   roofType: 'flat' | 'pitched';
+  wallSegs: WallSegInfo[];
+  selectedWallIdx: number | null;
+  onWallClick: (idx: number | null) => void;
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
 
@@ -246,15 +265,47 @@ function ThreeViewer({ points, storeyHeight, roofType }: {
     for (let i = 1; i < centred.length; i++) shape.lineTo(centred[i].x, -centred[i].y);
     shape.closePath();
 
-    const wallGeo = new THREE.ExtrudeGeometry(shape, { depth: storeyHeight, bevelEnabled: false });
-    const wallMesh = new THREE.Mesh(wallGeo, new THREE.MeshLambertMaterial({ color: '#d4edda', side: THREE.DoubleSide }));
-    wallMesh.rotation.x = -Math.PI / 2;
-    wallMesh.castShadow = true;
-    scene.add(wallMesh);
+    // Floor slab
+    const floorGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.1, bevelEnabled: false });
+    const floorMesh = new THREE.Mesh(floorGeo, new THREE.MeshLambertMaterial({ color: '#e2e8f0', side: THREE.DoubleSide }));
+    floorMesh.rotation.x = -Math.PI / 2;
+    floorMesh.position.y = -0.1;
+    scene.add(floorMesh);
 
-    const wallWire = new THREE.Mesh(wallGeo, new THREE.MeshBasicMaterial({ color: '#14532d', wireframe: true, opacity: 0.12, transparent: true }));
-    wallWire.rotation.x = -Math.PI / 2;
-    scene.add(wallWire);
+    // Individual wall meshes — one per segment, coloured by type
+    const wallMeshData: { mesh: THREE.Mesh; idx: number }[] = [];
+    const WALL_THICKNESS = 0.2;
+    for (const seg of wallSegs) {
+      const segLen = seg.len;
+      const dx = seg.b.x - seg.a.x;
+      const dy = seg.b.y - seg.a.y;
+      const angle = Math.atan2(dy, dx);
+      const midX = (seg.a.x + seg.b.x) / 2 - cx;
+      const midZ = -((seg.a.y + seg.b.y) / 2 - cy);
+
+      const geo = new THREE.BoxGeometry(segLen, storeyHeight, WALL_THICKNESS);
+      const isSelected = seg.i === selectedWallIdx;
+      const baseColor = WALL_3D_COLOR[seg.type];
+      const mat = new THREE.MeshLambertMaterial({
+        color: isSelected ? 0xffffff : baseColor,
+        emissive: isSelected ? baseColor : 0x000000,
+        emissiveIntensity: isSelected ? 0.4 : 0,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(midX, storeyHeight / 2, midZ);
+      mesh.rotation.y = -angle;
+      mesh.castShadow = true;
+      scene.add(mesh);
+
+      // Wire outline
+      const wireMat = new THREE.MeshBasicMaterial({ color: 0x14532d, wireframe: true, opacity: 0.1, transparent: true });
+      const wireMesh = new THREE.Mesh(geo, wireMat);
+      wireMesh.position.copy(mesh.position);
+      wireMesh.rotation.copy(mesh.rotation);
+      scene.add(wireMesh);
+
+      wallMeshData.push({ mesh, idx: seg.i });
+    }
 
     if (roofType === 'flat') {
       const roofGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.2, bevelEnabled: false });
@@ -313,8 +364,11 @@ function ThreeViewer({ points, storeyHeight, roofType }: {
     scene.add(grid);
 
     let isDragging = false;
+    let mouseDownPos = { x: 0, y: 0 };
     let prevMouse = { x: 0, y: 0 };
     const spherical = { theta: Math.PI / 4, phi: Math.PI / 3, radius: 30 };
+    const raycaster = new THREE.Raycaster();
+    const mouse2D = new THREE.Vector2();
 
     function updateCamera() {
       camera.position.set(
@@ -326,8 +380,30 @@ function ThreeViewer({ points, storeyHeight, roofType }: {
     }
     updateCamera();
 
-    const onMouseDown = (e: MouseEvent) => { isDragging = true; prevMouse = { x: e.clientX, y: e.clientY }; };
-    const onMouseUp = () => { isDragging = false; };
+    const onMouseDown = (e: MouseEvent) => {
+      isDragging = true;
+      mouseDownPos = { x: e.clientX, y: e.clientY };
+      prevMouse = { x: e.clientX, y: e.clientY };
+    };
+    const onMouseUp = (e: MouseEvent) => {
+      const ddx = e.clientX - mouseDownPos.x;
+      const ddy = e.clientY - mouseDownPos.y;
+      const wasDrag = Math.sqrt(ddx * ddx + ddy * ddy) > 4;
+      isDragging = false;
+      if (!wasDrag && wallMeshData.length > 0) {
+        const rect = el.getBoundingClientRect();
+        mouse2D.x = ((e.clientX - rect.left) / W) * 2 - 1;
+        mouse2D.y = -((e.clientY - rect.top) / H) * 2 + 1;
+        raycaster.setFromCamera(mouse2D, camera);
+        const meshes = wallMeshData.map(w => w.mesh);
+        const hits = raycaster.intersectObjects(meshes);
+        if (hits.length > 0) {
+          const hit = wallMeshData.find(w => w.mesh === hits[0].object);
+          if (hit) { onWallClick(hit.idx); return; }
+        }
+        onWallClick(null);
+      }
+    };
     const onMouseMove = (e: MouseEvent) => {
       if (!isDragging) return;
       spherical.theta -= (e.clientX - prevMouse.x) * 0.01;
@@ -358,7 +434,8 @@ function ThreeViewer({ points, storeyHeight, roofType }: {
       renderer.dispose();
       if (el.contains(renderer.domElement)) el.removeChild(renderer.domElement);
     };
-  }, [points, storeyHeight, roofType]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [points, storeyHeight, roofType, wallSegs, selectedWallIdx]);
 
   if (points.length < 3) {
     return (
@@ -423,6 +500,9 @@ export default function FloorPlanTool() {
   const [ridgePoints, setRidgePoints] = useState<Point[]>([]);
   const [roofHover, setRoofHover] = useState<Point | null>(null);
 
+  // Selected wall (3D click)
+  const [selectedWallIdx, setSelectedWallIdx] = useState<number | null>(null);
+
   const svgRef = useRef<SVGSVGElement>(null);
 
   // Derive points from walls list (start at 5,5 in type mode)
@@ -443,7 +523,7 @@ export default function FloorPlanTool() {
   const canClose = walls.length >= 2 && distToStart < 50;
 
   // ── Wall segments (computed from closed polygon) ────────────────────────────
-  const wallSegs = closed && activePoints.length >= 3
+  const wallSegs: WallSegInfo[] = closed && activePoints.length >= 3
     ? activePoints.map((p, i) => {
         const b = activePoints[(i + 1) % activePoints.length];
         return {
@@ -1265,7 +1345,73 @@ export default function FloorPlanTool() {
         </div>
 
         {/* 3D View */}
-        <ThreeViewer points={closed ? activePoints : []} storeyHeight={storeyHeight} roofType={roofType} />
+        <div className="relative">
+          <ThreeViewer
+            points={closed ? activePoints : []}
+            storeyHeight={storeyHeight}
+            roofType={roofType}
+            wallSegs={wallSegs}
+            selectedWallIdx={selectedWallIdx}
+            onWallClick={(idx) => setSelectedWallIdx(prev => prev === idx ? null : idx)}
+          />
+          {/* Wall info overlay */}
+          {selectedWallIdx !== null && (() => {
+            const seg = wallSegs.find(s => s.i === selectedWallIdx);
+            if (!seg) return null;
+            return (
+              <div className="absolute top-3 left-3 rounded-xl shadow-lg p-3 z-10 min-w-[200px]"
+                style={{ background: 'white', border: `2px solid ${WALL_COLOR[seg.type]}`, maxWidth: 240 }}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-black uppercase tracking-widest" style={{ color: WALL_COLOR[seg.type] }}>
+                    Wall {seg.i + 1}
+                  </span>
+                  <button
+                    onClick={() => setSelectedWallIdx(null)}
+                    className="text-xs px-1.5 py-0.5 rounded"
+                    style={{ color: '#94a3b8', background: '#f1f5f9' }}
+                  >✕</button>
+                </div>
+                <div className="space-y-1 text-xs">
+                  <div className="flex justify-between">
+                    <span style={{ color: '#94a3b8' }}>Type</span>
+                    <span
+                      className="px-1.5 py-0.5 rounded font-black uppercase cursor-pointer"
+                      style={{
+                        background: seg.type === 'external' ? '#dcfce7' : seg.type === 'party' ? '#fef3c7' : '#f1f5f9',
+                        color: WALL_COLOR[seg.type],
+                        fontSize: 9,
+                      }}
+                      onClick={() => setWallTypes(prev => {
+                        const next = [...prev];
+                        next[seg.i] = WALL_CYCLE[(WALL_CYCLE.indexOf(seg.type) + 1) % WALL_CYCLE.length];
+                        return next;
+                      })}
+                      title="Click to change type"
+                    >
+                      {seg.type === 'external' ? 'External' : seg.type === 'party' ? 'Party' : 'Internal'} ▾
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span style={{ color: '#94a3b8' }}>Orientation</span>
+                    <span className="font-bold" style={{ color: '#334155' }}>{ORIENT_ARROW[seg.orientation]} {seg.orientation}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span style={{ color: '#94a3b8' }}>Length</span>
+                    <span className="font-mono font-bold" style={{ color: '#334155' }}>{seg.len.toFixed(2)} m</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span style={{ color: '#94a3b8' }}>Height</span>
+                    <span className="font-mono font-bold" style={{ color: '#334155' }}>{storeyHeight.toFixed(2)} m</span>
+                  </div>
+                  <div className="flex justify-between pt-1" style={{ borderTop: '1px solid #f1f5f9' }}>
+                    <span style={{ color: '#94a3b8' }}>Area</span>
+                    <span className="font-mono font-black text-sm" style={{ color: WALL_COLOR[seg.type] }}>{seg.area.toFixed(2)} m²</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
 
         {/* SAP Takeoff */}
         <div className="rounded-2xl flex flex-col overflow-hidden" style={{ background: 'white', border: '2px solid #dcfce7' }}>
@@ -1327,23 +1473,41 @@ export default function FloorPlanTool() {
                 {/* Individual wall breakdown */}
                 <div style={{ borderTop: '1px dashed #dcfce7', paddingTop: 12 }}>
                   <div className="text-xs font-black uppercase tracking-widest mb-2" style={{ color: '#94a3b8' }}>ALL WALLS</div>
+                  <div className="text-xs mb-1" style={{ color: '#94a3b8' }}>Click type badge to change · Click row to highlight in 3D</div>
                   <div className="space-y-1">
                     {wallSegs.map(seg => (
-                      <div key={seg.i} className="flex items-center gap-1 text-xs">
+                      <div
+                        key={seg.i}
+                        className="flex items-center gap-1 text-xs rounded-lg px-1 py-0.5 cursor-pointer transition-all"
+                        style={{
+                          background: selectedWallIdx === seg.i ? (seg.type === 'external' ? '#dcfce7' : seg.type === 'party' ? '#fef3c7' : '#f1f5f9') : 'transparent',
+                          outline: selectedWallIdx === seg.i ? `2px solid ${WALL_COLOR[seg.type]}` : 'none',
+                        }}
+                        onClick={() => setSelectedWallIdx(prev => prev === seg.i ? null : seg.i)}
+                      >
                         <span className="font-black w-6 shrink-0" style={{ color: '#94a3b8' }}>W{seg.i + 1}</span>
                         <span className="w-4 shrink-0" style={{ color: WALL_COLOR[seg.type] }}>{ORIENT_ARROW[seg.orientation]}</span>
-                        <span className="font-semibold w-12 shrink-0" style={{ color: '#475569' }}>{seg.orientation.slice(0, 1)}</span>
+                        <span className="font-semibold w-10 shrink-0" style={{ color: '#475569' }}>{seg.orientation.slice(0, 1)}</span>
                         <span className="font-mono w-14 shrink-0" style={{ color: '#334155' }}>{seg.len.toFixed(2)}m</span>
-                        <span className="font-mono w-16 shrink-0" style={{ color: '#334155' }}>{seg.area.toFixed(1)}m²</span>
+                        <span className="font-mono w-14 shrink-0" style={{ color: '#334155' }}>{seg.area.toFixed(1)}m²</span>
                         <span
-                          className="text-xs px-1 py-0.5 rounded font-black uppercase shrink-0"
+                          className="text-xs px-1 py-0.5 rounded font-black uppercase shrink-0 cursor-pointer hover:opacity-75"
+                          title="Click to change type"
                           style={{
                             background: seg.type === 'external' ? '#dcfce7' : seg.type === 'party' ? '#fef3c7' : '#f1f5f9',
                             color: WALL_COLOR[seg.type],
                             fontSize: 9,
                           }}
+                          onClick={e => {
+                            e.stopPropagation();
+                            setWallTypes(prev => {
+                              const next = [...prev];
+                              next[seg.i] = WALL_CYCLE[(WALL_CYCLE.indexOf(seg.type) + 1) % WALL_CYCLE.length];
+                              return next;
+                            });
+                          }}
                         >
-                          {seg.type === 'external' ? 'Ext' : seg.type === 'party' ? 'Pty' : 'Int'}
+                          {seg.type === 'external' ? 'Ext ▾' : seg.type === 'party' ? 'Pty ▾' : 'Int ▾'}
                         </span>
                       </div>
                     ))}
