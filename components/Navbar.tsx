@@ -7,6 +7,7 @@ import Mascot from './Mascot';
 const navItems = [
   { href: '/', label: 'U-VALUE CALCULATOR', active: true },
   { href: '/library', label: 'CONSTRUCTION LIBRARY', active: true },
+  { href: '/floor-plan', label: 'FLOOR PLAN TOOL', active: true },
   { href: '/sap', label: 'SAP ASSESSMENT', active: false },
 ];
 
