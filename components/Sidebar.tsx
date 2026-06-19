@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import Mascot from './Mascot';
 
 const navItems = [
   { href: '/', label: 'U-Value Calculator', icon: '⚡', active: true },
@@ -11,35 +12,64 @@ const navItems = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+
   return (
-    <aside className="w-64 bg-slate-900 flex flex-col h-full shrink-0">
-      <div className="px-5 py-6 border-b border-slate-700">
-        <div className="text-white font-bold text-base leading-tight">SAP Assessor Tool</div>
+    <aside className="w-72 flex flex-col h-full shrink-0" style={{ background: '#0f1729' }}>
+      <div
+        className="flex flex-col items-center px-5 pt-8 pb-6"
+        style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}
+      >
+        <Mascot />
+        <div className="mt-4 text-white font-black text-xl tracking-tight leading-tight text-center">
+          SAP Assessor
+        </div>
       </div>
-      <nav className="flex-1 px-3 py-4 space-y-1">
+
+      <nav className="flex-1 px-4 py-5 space-y-1.5">
         {navItems.map((item) => {
           const isActive = pathname === item.href;
           if (!item.active) {
             return (
-              <div key={item.href} className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 cursor-not-allowed select-none">
-                <span className="text-sm opacity-50">{item.icon}</span>
-                <span className="text-sm opacity-50">{item.label}</span>
-                <span className="ml-auto text-xs bg-slate-800 text-slate-500 px-1.5 py-0.5 rounded">Soon</span>
+              <div
+                key={item.href}
+                className="flex items-center gap-3 px-4 py-3 rounded-xl cursor-not-allowed select-none"
+                style={{ opacity: 0.35 }}
+              >
+                <span className="text-base">{item.icon}</span>
+                <span className="text-sm font-semibold" style={{ color: 'rgba(255,255,255,0.9)' }}>
+                  {item.label}
+                </span>
+                <span
+                  className="ml-auto text-xs px-2 py-0.5 rounded-md font-bold"
+                  style={{ background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.5)' }}
+                >
+                  Soon
+                </span>
               </div>
             );
           }
           return (
-            <Link key={item.href} href={item.href} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-              isActive ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-            }`}>
-              <span className="text-sm">{item.icon}</span>
-              <span className="text-sm font-medium">{item.label}</span>
+            <Link
+              key={item.href}
+              href={item.href}
+              className="flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-semibold text-sm"
+              style={
+                isActive
+                  ? { background: '#FFF8F0', color: '#0f1729', borderLeft: '4px solid #FFD700' }
+                  : { color: 'rgba(255,255,255,0.6)', borderLeft: '4px solid transparent' }
+              }
+            >
+              <span className="text-base">{item.icon}</span>
+              <span>{item.label}</span>
             </Link>
           );
         })}
       </nav>
-      <div className="px-5 py-4 border-t border-slate-700">
-        <div className="text-slate-500 text-xs">SAP 10.2 / BR443:2019</div>
+
+      <div className="px-5 py-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+        <div className="text-xs font-medium" style={{ color: 'rgba(255,255,255,0.3)' }}>
+          SAP 10.2 · BR443:2019
+        </div>
       </div>
     </aside>
   );
