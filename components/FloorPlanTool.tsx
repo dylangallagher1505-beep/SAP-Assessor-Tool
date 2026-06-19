@@ -274,58 +274,62 @@ function ThreeViewer({ points, storeyHeight, storeyBase, roofType, wallSegs, sel
     floorMesh.position.y = storeyBase - 0.1;
     scene.add(floorMesh);
 
-    // Individual wall meshes — one per segment, coloured by type
-    const wallMeshData: { mesh: THREE.Mesh; idx: number }[] = [];
-    const WALL_THICKNESS = 0.25;
+    // Building body — single ExtrudeGeometry so walls + roof are always perfectly flush
+    const wallMat = new THREE.MeshLambertMaterial({ color: '#4ade80', side: THREE.DoubleSide });
+    const wallGeo = new THREE.ExtrudeGeometry(shape, { depth: storeyHeight, bevelEnabled: false });
+    const wallMesh = new THREE.Mesh(wallGeo, wallMat);
+    wallMesh.rotation.x = -Math.PI / 2;
+    wallMesh.position.y = storeyBase;
+    wallMesh.castShadow = true;
+    scene.add(wallMesh);
 
-    // Detect polygon winding from signed shoelace area (SVG coords).
-    // CW on screen → positive → formula gives outward normal → shift inward = subtract.
-    // CCW on screen → negative → formula gives inward normal → shift inward = add.
-    let signedArea2 = 0;
-    for (let i = 0; i < points.length; i++) {
-      const j = (i + 1) % points.length;
-      signedArea2 += points[i].x * points[j].y - points[j].x * points[i].y;
-    }
-    const windingSign = signedArea2 >= 0 ? -1 : 1;
-
+    // Coloured wall-type overlay — a thin PlaneGeometry on each outer wall face
+    // positioned exactly on the polygon edge (zero offset, exact perimeter)
     for (const seg of wallSegs) {
-      const segLen = seg.len;
-      const dx = seg.b.x - seg.a.x;
-      const dy = seg.b.y - seg.a.y;
-      const angle = Math.atan2(dy, dx);
-      // Normal from the edge direction formula; direction depends on winding (above)
-      const outNX = (seg.b.y - seg.a.y) / segLen;
-      const outNZ = (seg.b.x - seg.a.x) / segLen;
-      // Shift box centre inward by half-thickness so outer face sits on polygon edge
-      const midX = (seg.a.x + seg.b.x) / 2 - cx + windingSign * outNX * WALL_THICKNESS / 2;
-      const midZ = -((seg.a.y + seg.b.y) / 2 - cy) + windingSign * outNZ * WALL_THICKNESS / 2;
+      const midX = (seg.a.x + seg.b.x) / 2 - cx;
+      const midZ = -((seg.a.y + seg.b.y) / 2 - cy);
+      const angle = Math.atan2(seg.b.y - seg.a.y, seg.b.x - seg.a.x);
+      const color = WALL_3D_COLOR[seg.type];
+      const planeGeo = new THREE.PlaneGeometry(seg.len, storeyHeight);
+      const planeMat = new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: 0.55 });
+      const plane = new THREE.Mesh(planeGeo, planeMat);
+      plane.position.set(midX, storeyBase + storeyHeight / 2, midZ);
+      plane.rotation.y = -angle;
+      scene.add(plane);
+    }
 
-      const geo = new THREE.BoxGeometry(segLen, storeyHeight, WALL_THICKNESS);
-      const isSelected = seg.i === selectedWallIdx;
-      const baseColor = WALL_3D_COLOR[seg.type];
-      const mat = new THREE.MeshLambertMaterial({
-        color: isSelected ? 0xffffff : baseColor,
-        emissive: isSelected ? baseColor : 0x000000,
-        emissiveIntensity: isSelected ? 0.4 : 0,
-      });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(midX, storeyBase + storeyHeight / 2, midZ);
-      mesh.rotation.y = -angle;
-      mesh.castShadow = true;
-      scene.add(mesh);
-
-      // Raycasting invisible volume — slightly thicker for easier clicking
-      const hitGeo = new THREE.BoxGeometry(segLen, storeyHeight, WALL_THICKNESS + 0.3);
+    // Per-wall invisible hit volumes for raycasting
+    const wallMeshData: { mesh: THREE.Mesh; idx: number }[] = [];
+    for (const seg of wallSegs) {
+      const midX = (seg.a.x + seg.b.x) / 2 - cx;
+      const midZ = -((seg.a.y + seg.b.y) / 2 - cy);
+      const angle = Math.atan2(seg.b.y - seg.a.y, seg.b.x - seg.a.x);
+      const hitGeo = new THREE.BoxGeometry(seg.len, storeyHeight, 0.6);
       const hitMesh = new THREE.Mesh(hitGeo, new THREE.MeshBasicMaterial({ visible: false }));
-      hitMesh.position.copy(mesh.position);
+      hitMesh.position.set(midX, storeyBase + storeyHeight / 2, midZ);
       hitMesh.rotation.y = -angle;
       scene.add(hitMesh);
-
       wallMeshData.push({ mesh: hitMesh, idx: seg.i });
     }
 
+    // Selected wall highlight
+    if (selectedWallIdx !== null) {
+      const sel = wallSegs.find(s => s.i === selectedWallIdx);
+      if (sel) {
+        const midX = (sel.a.x + sel.b.x) / 2 - cx;
+        const midZ = -((sel.a.y + sel.b.y) / 2 - cy);
+        const angle = Math.atan2(sel.b.y - sel.a.y, sel.b.x - sel.a.x);
+        const hlGeo = new THREE.PlaneGeometry(sel.len, storeyHeight);
+        const hlMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, transparent: true, opacity: 0.5 });
+        const hlMesh = new THREE.Mesh(hlGeo, hlMat);
+        hlMesh.position.set(midX, storeyBase + storeyHeight / 2, midZ);
+        hlMesh.rotation.y = -angle;
+        scene.add(hlMesh);
+      }
+    }
+
     if (roofType === 'flat') {
-      const roofGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.2, bevelEnabled: false });
+      const roofGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.15, bevelEnabled: false });
       const roofMesh = new THREE.Mesh(roofGeo, new THREE.MeshLambertMaterial({ color: '#86efac' }));
       roofMesh.rotation.x = -Math.PI / 2;
       roofMesh.position.y = storeyBase + storeyHeight;
