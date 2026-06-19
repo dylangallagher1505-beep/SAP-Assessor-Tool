@@ -275,15 +275,22 @@ function ThreeViewer({ points, storeyHeight, storeyBase, roofType, wallSegs, sel
     scene.add(floorMesh);
 
     // Individual wall meshes — one per segment, coloured by type
+    // Outward normal of edge a→b for a CW-SVG (CCW-3D) polygon:
+    //   outNX = (b.y - a.y) / len, outNZ = (b.x - a.x) / len
+    // Shift centre INWARD by half-thickness so outer face sits on polygon edge → roof covers top flush.
     const wallMeshData: { mesh: THREE.Mesh; idx: number }[] = [];
-    const WALL_THICKNESS = 0.2;
+    const WALL_THICKNESS = 0.25;
     for (const seg of wallSegs) {
       const segLen = seg.len;
       const dx = seg.b.x - seg.a.x;
       const dy = seg.b.y - seg.a.y;
       const angle = Math.atan2(dy, dx);
-      const midX = (seg.a.x + seg.b.x) / 2 - cx;
-      const midZ = -((seg.a.y + seg.b.y) / 2 - cy);
+      // outward normal in 3D XZ plane
+      const outNX = (seg.b.y - seg.a.y) / segLen;
+      const outNZ = (seg.b.x - seg.a.x) / segLen;
+      // centre shifted inward by half-thickness so outer wall face = polygon edge
+      const midX = (seg.a.x + seg.b.x) / 2 - cx - outNX * WALL_THICKNESS / 2;
+      const midZ = -((seg.a.y + seg.b.y) / 2 - cy) - outNZ * WALL_THICKNESS / 2;
 
       const geo = new THREE.BoxGeometry(segLen, storeyHeight, WALL_THICKNESS);
       const isSelected = seg.i === selectedWallIdx;
@@ -299,14 +306,14 @@ function ThreeViewer({ points, storeyHeight, storeyBase, roofType, wallSegs, sel
       mesh.castShadow = true;
       scene.add(mesh);
 
-      // Wire outline
-      const wireMat = new THREE.MeshBasicMaterial({ color: 0x14532d, wireframe: true, opacity: 0.1, transparent: true });
-      const wireMesh = new THREE.Mesh(geo, wireMat);
-      wireMesh.position.copy(mesh.position);
-      wireMesh.rotation.y = -angle;
-      scene.add(wireMesh);
+      // Raycasting invisible volume — slightly thicker for easier clicking
+      const hitGeo = new THREE.BoxGeometry(segLen, storeyHeight, WALL_THICKNESS + 0.3);
+      const hitMesh = new THREE.Mesh(hitGeo, new THREE.MeshBasicMaterial({ visible: false }));
+      hitMesh.position.copy(mesh.position);
+      hitMesh.rotation.y = -angle;
+      scene.add(hitMesh);
 
-      wallMeshData.push({ mesh, idx: seg.i });
+      wallMeshData.push({ mesh: hitMesh, idx: seg.i });
     }
 
     if (roofType === 'flat') {
