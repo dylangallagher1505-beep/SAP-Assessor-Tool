@@ -10,6 +10,18 @@ type Orientation = 'North' | 'East' | 'South' | 'West';
 type Dir = 'N' | 'S' | 'E' | 'W';
 type InputMode = 'draw' | 'type';
 type WallType = 'external' | 'party' | 'internal';
+type Layer = 'floor' | 'roof';
+type RoofType = 'flat' | 'pitched_cold' | 'pitched_warm' | 'room_in_roof' | 'exposed_floor';
+type RoofPhase = 'idle' | 'polygon' | 'ridge';
+
+interface RoofZone {
+  id: number;
+  label: string;
+  type: RoofType;
+  pitch: number; // degrees
+  points: Point[]; // plan polygon
+  ridge: { a: Point; b: Point } | null;
+}
 
 const WALL_COLOR: Record<WallType, string> = {
   external: '#16a34a',
@@ -17,6 +29,25 @@ const WALL_COLOR: Record<WallType, string> = {
   internal: '#94a3b8',
 };
 const WALL_CYCLE: WallType[] = ['external', 'party', 'internal'];
+
+const ROOF_TYPE_LABEL: Record<RoofType, string> = {
+  flat: 'Flat Roof',
+  pitched_cold: 'Pitched — Cold Loft',
+  pitched_warm: 'Pitched — Warm (Rafter)',
+  room_in_roof: 'Room in Roof',
+  exposed_floor: 'Exposed Floor/Soffit',
+};
+
+const ROOF_TYPE_COLOR: Record<RoofType, string> = {
+  flat: '#6366f1',
+  pitched_cold: '#0ea5e9',
+  pitched_warm: '#f97316',
+  room_in_roof: '#ec4899',
+  exposed_floor: '#84cc16',
+};
+
+// These types need a ridge line for accurate slope measurement
+const NEEDS_RIDGE: RoofType[] = ['pitched_warm', 'room_in_roof'];
 
 // ─── Geometry helpers ─────────────────────────────────────────────────────────
 function wallOrientationWithNorth(a: Point, b: Point, northDeg: number): Orientation {
@@ -61,6 +92,104 @@ function applyDir(pt: Point, dir: Dir, len: number): Point {
     case 'E': return { x: pt.x + len, y: pt.y };
     case 'W': return { x: pt.x - len, y: pt.y };
   }
+}
+
+// ─── Roof geometry helpers ─────────────────────────────────────────────────────────
+function sideOfLine(p: Point, a: Point, b: Point): number {
+  return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+}
+
+function segIntersect(p1: Point, p2: Point, lineA: Point, lineB: Point): Point | null {
+  const d1x = p2.x - p1.x, d1y = p2.y - p1.y;
+  const d2x = lineB.x - lineA.x, d2y = lineB.y - lineA.y;
+  const denom = d1x * d2y - d1y * d2x;
+  if (Math.abs(denom) < 1e-10) return null;
+  const t = ((lineA.x - p1.x) * d2y - (lineA.y - p1.y) * d2x) / denom;
+  return { x: p1.x + t * d1x, y: p1.y + t * d1y };
+}
+
+function clipPolygon(poly: Point[], lineA: Point, lineB: Point, keepLeft: boolean): Point[] {
+  if (poly.length < 3) return [];
+  const out: Point[] = [];
+  for (let i = 0; i < poly.length; i++) {
+    const curr = poly[i];
+    const next = poly[(i + 1) % poly.length];
+    const currInside = keepLeft ? sideOfLine(curr, lineA, lineB) >= 0 : sideOfLine(curr, lineA, lineB) < 0;
+    const nextInside = keepLeft ? sideOfLine(next, lineA, lineB) >= 0 : sideOfLine(next, lineA, lineB) < 0;
+    if (currInside) out.push(curr);
+    if (currInside !== nextInside) {
+      const inter = segIntersect(curr, next, lineA, lineB);
+      if (inter) out.push(inter);
+    }
+  }
+  return out;
+}
+
+function extendLine(a: Point, b: Point, dist = 100): [Point, Point] {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len < 1e-10) return [a, b];
+  return [
+    { x: a.x - (dx / len) * dist, y: a.y - (dy / len) * dist },
+    { x: b.x + (dx / len) * dist, y: b.y + (dy / len) * dist },
+  ];
+}
+
+// In SVG (y-down): left normal of (dx,dy) = (dy,-dx)/len, right = (-dy,dx)/len
+// Slope faces the direction its surface drains (away from ridge)
+function slopeOrientation(ridgeA: Point, ridgeB: Point, isLeft: boolean, northDeg: number): Orientation {
+  const dx = ridgeB.x - ridgeA.x, dy = ridgeB.y - ridgeA.y;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len < 1e-10) return 'North';
+  const nx = isLeft ? dy / len : -dy / len;
+  const ny = isLeft ? -dx / len : dx / len;
+  // North in SVG = (0,-1), so compass CW from North = atan2(nx, -ny)
+  const compassAngle = Math.atan2(nx, -ny) * (180 / Math.PI);
+  const n = ((compassAngle - northDeg) % 360 + 360) % 360;
+  if (n >= 315 || n < 45) return 'North';
+  if (n >= 45 && n < 135) return 'East';
+  if (n >= 135 && n < 225) return 'South';
+  return 'West';
+}
+
+function polygonCentroid(pts: Point[]): Point {
+  if (pts.length === 0) return { x: 0, y: 0 };
+  let cx = 0, cy = 0, area2 = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const j = (i + 1) % pts.length;
+    const cross = pts[i].x * pts[j].y - pts[j].x * pts[i].y;
+    area2 += cross;
+    cx += (pts[i].x + pts[j].x) * cross;
+    cy += (pts[i].y + pts[j].y) * cross;
+  }
+  if (Math.abs(area2) < 1e-10) {
+    return { x: pts.reduce((s, p) => s + p.x, 0) / pts.length, y: pts.reduce((s, p) => s + p.y, 0) / pts.length };
+  }
+  return { x: cx / (3 * area2), y: cy / (3 * area2) };
+}
+
+interface RoofSlope { orientation: Orientation; planArea: number; actualArea: number; halfPoly?: Point[]; }
+
+function computeZoneSlopes(zone: RoofZone, northDeg: number): RoofSlope[] {
+  const pitchRad = zone.pitch * Math.PI / 180;
+  const slopeFactor = zone.pitch > 0 ? 1 / Math.cos(pitchRad) : 1;
+
+  if (!zone.ridge || !NEEDS_RIDGE.includes(zone.type)) {
+    const planArea = polygonArea(zone.points);
+    const actualArea = (zone.type === 'pitched_warm' || zone.type === 'room_in_roof')
+      ? planArea * slopeFactor : planArea;
+    return [{ orientation: 'North', planArea, actualArea, halfPoly: zone.points }];
+  }
+
+  const [extA, extB] = extendLine(zone.ridge.a, zone.ridge.b);
+  const leftPoly = clipPolygon(zone.points, extA, extB, true);
+  const rightPoly = clipPolygon(zone.points, extA, extB, false);
+  const leftPlan = polygonArea(leftPoly);
+  const rightPlan = polygonArea(rightPoly);
+  const slopes: RoofSlope[] = [];
+  if (leftPlan > 0.01) slopes.push({ orientation: slopeOrientation(zone.ridge.a, zone.ridge.b, true, northDeg), planArea: leftPlan, actualArea: leftPlan * slopeFactor, halfPoly: leftPoly });
+  if (rightPlan > 0.01) slopes.push({ orientation: slopeOrientation(zone.ridge.a, zone.ridge.b, false, northDeg), planArea: rightPlan, actualArea: rightPlan * slopeFactor, halfPoly: rightPoly });
+  return slopes;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -278,6 +407,22 @@ export default function FloorPlanTool() {
   const [walls, setWalls] = useState<{ dir: Dir; len: number }[]>([]);
   const lenRef = useRef<HTMLInputElement>(null);
 
+  // Layer state
+  const [layer, setLayer] = useState<Layer>('floor');
+  const [roofZones, setRoofZones] = useState<RoofZone[]>([]);
+  const [nextZoneId, setNextZoneId] = useState(1);
+
+  // New zone config
+  const [newZoneLabel, setNewZoneLabel] = useState('Zone 1');
+  const [newZoneType, setNewZoneType] = useState<RoofType>('pitched_cold');
+  const [newZonePitch, setNewZonePitch] = useState(35);
+
+  // Roof drawing
+  const [roofPhase, setRoofPhase] = useState<RoofPhase>('idle');
+  const [roofPolyPoints, setRoofPolyPoints] = useState<Point[]>([]);
+  const [ridgePoints, setRidgePoints] = useState<Point[]>([]);
+  const [roofHover, setRoofHover] = useState<Point | null>(null);
+
   const svgRef = useRef<SVGSVGElement>(null);
 
   // Derive points from walls list (start at 5,5 in type mode)
@@ -335,6 +480,70 @@ export default function FloorPlanTool() {
   }, []);
 
   const handleClick = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    // ── Roof layer handling ──
+    if (layer === 'roof') {
+      if (roofPhase === 'polygon') {
+        const pt = getSVGPoint(e);
+        if (roofPolyPoints.length >= 3) {
+          const first = roofPolyPoints[0];
+          if (Math.sqrt((pt.x - first.x) ** 2 + (pt.y - first.y) ** 2) < 0.6) {
+            // Close polygon
+            if (NEEDS_RIDGE.includes(newZoneType)) {
+              setRoofPhase('ridge');
+            } else {
+              // Save zone immediately
+              const newZone: RoofZone = {
+                id: nextZoneId,
+                label: newZoneLabel,
+                type: newZoneType,
+                pitch: newZonePitch,
+                points: roofPolyPoints,
+                ridge: null,
+              };
+              setRoofZones(prev => [...prev, newZone]);
+              setRoofPolyPoints([]);
+              setRidgePoints([]);
+              setRoofPhase('idle');
+              const newId = nextZoneId + 1;
+              setNextZoneId(newId);
+              setNewZoneLabel(`Zone ${newId}`);
+            }
+            return;
+          }
+        }
+        setRoofPolyPoints(prev => [...prev, pt]);
+        return;
+      }
+
+      if (roofPhase === 'ridge') {
+        const pt = getSVGPoint(e);
+        if (ridgePoints.length === 0) {
+          setRidgePoints([pt]);
+        } else {
+          // Second point — save zone
+          const newZone: RoofZone = {
+            id: nextZoneId,
+            label: newZoneLabel,
+            type: newZoneType,
+            pitch: newZonePitch,
+            points: roofPolyPoints,
+            ridge: { a: ridgePoints[0], b: pt },
+          };
+          setRoofZones(prev => [...prev, newZone]);
+          setRoofPolyPoints([]);
+          setRidgePoints([]);
+          setRoofPhase('idle');
+          const newId = nextZoneId + 1;
+          setNextZoneId(newId);
+          setNewZoneLabel(`Zone ${newId}`);
+        }
+        return;
+      }
+
+      return; // idle in roof layer, ignore clicks on canvas
+    }
+
+    // ── Floor layer handling ──
     if (inputMode === 'draw' && !closed) {
       const pt = getSVGPoint(e);
       if (points.length >= 3) {
@@ -368,12 +577,18 @@ export default function FloorPlanTool() {
         });
       }
     }
-  }, [closed, points, getSVGPoint, inputMode, wallSegs]);
+  }, [closed, points, getSVGPoint, inputMode, wallSegs, layer, roofPhase, roofPolyPoints, ridgePoints, newZoneType, newZoneLabel, newZonePitch, nextZoneId]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    if (layer === 'roof') {
+      if (roofPhase === 'polygon' || roofPhase === 'ridge') {
+        setRoofHover(getSVGPoint(e));
+      }
+      return;
+    }
     if (closed || inputMode !== 'draw') return;
     setHoverPoint(getSVGPoint(e));
-  }, [closed, getSVGPoint, inputMode]);
+  }, [closed, getSVGPoint, inputMode, layer, roofPhase]);
 
   // ── Type mode: add wall ─────────────────────────────────────────────────────
   const addWall = useCallback(() => {
@@ -445,9 +660,20 @@ export default function FloorPlanTool() {
   const dirArrow: Record<Dir, string> = { N: '↑', S: '↓', E: '→', W: '←' };
   const dirLabel: Record<Dir, string> = { N: 'NORTH', S: 'SOUTH', E: 'EAST', W: 'WEST' };
 
-  const cursorClass = closed
-    ? 'cursor-pointer'
-    : inputMode === 'draw' ? 'cursor-crosshair' : 'cursor-default';
+  const cursorClass = layer === 'roof'
+    ? (roofPhase !== 'idle' ? 'cursor-crosshair' : 'cursor-default')
+    : closed
+      ? 'cursor-pointer'
+      : inputMode === 'draw' ? 'cursor-crosshair' : 'cursor-default';
+
+  // ── Roof zone total area ─────────────────────────────────────────────────────
+  const totalRoofActualArea = roofZones.reduce((sum, zone) => {
+    const slopes = computeZoneSlopes(zone, northAngle);
+    return sum + slopes.reduce((s, sl) => s + sl.actualArea, 0);
+  }, 0);
+
+  // Whether pitch field should be shown
+  const pitchNeedsDisplay = (rt: RoofType) => rt !== 'flat' && rt !== 'pitched_cold' && rt !== 'exposed_floor';
 
   return (
     <div className="max-w-[1600px] mx-auto p-6 space-y-6">
@@ -461,6 +687,25 @@ export default function FloorPlanTool() {
 
       {/* Controls bar */}
       <div className="flex flex-wrap gap-4 items-end p-4 rounded-2xl" style={{ background: 'white', border: '2px solid #dcfce7' }}>
+
+        {/* Layer toggle — prominent at start */}
+        <div>
+          <label className="block text-xs font-black uppercase tracking-widest mb-1" style={{ color: '#64748b' }}>Layer</label>
+          <div className="flex rounded-xl overflow-hidden" style={{ border: '2px solid #6366f1' }}>
+            {(['floor', 'roof'] as Layer[]).map(l => (
+              <button key={l} onClick={() => setLayer(l)}
+                className="px-5 py-2 text-xs font-black uppercase tracking-widest transition-all"
+                style={{
+                  background: layer === l ? '#6366f1' : 'white',
+                  color: layer === l ? 'white' : '#6366f1',
+                }}
+              >
+                {l === 'floor' ? '🟩 FLOOR' : '🔷 ROOF'}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div>
           <label className="block text-xs font-black uppercase tracking-widest mb-1" style={{ color: '#64748b' }}>Storey Height (m)</label>
           <input
@@ -472,7 +717,7 @@ export default function FloorPlanTool() {
           />
         </div>
         <div>
-          <label className="block text-xs font-black uppercase tracking-widest mb-1" style={{ color: '#64748b' }}>Roof Type</label>
+          <label className="block text-xs font-black uppercase tracking-widest mb-1" style={{ color: '#64748b' }}>Roof Type (3D)</label>
           <select
             value={roofType}
             onChange={e => setRoofType(e.target.value as 'flat' | 'pitched')}
@@ -497,42 +742,46 @@ export default function FloorPlanTool() {
           </div>
         </div>
 
-        {/* Mode toggle */}
-        <div>
-          <label className="block text-xs font-black uppercase tracking-widest mb-1" style={{ color: '#64748b' }}>Input Mode</label>
-          <div className="flex rounded-xl overflow-hidden" style={{ border: '2px solid #dcfce7' }}>
-            {(['draw', 'type'] as InputMode[]).map(m => (
-              <button key={m} onClick={() => { setInputMode(m); setClosed(false); reset(); }}
-                className="px-4 py-2 text-xs font-black uppercase tracking-widest transition-all"
-                style={{ background: inputMode === m ? '#14532d' : 'white', color: inputMode === m ? 'white' : '#6b7280' }}
-              >
-                {m === 'draw' ? '✏️ Draw' : '⌨️ Type'}
-              </button>
-            ))}
+        {/* Mode toggle — only visible in floor layer */}
+        {layer === 'floor' && (
+          <div>
+            <label className="block text-xs font-black uppercase tracking-widest mb-1" style={{ color: '#64748b' }}>Input Mode</label>
+            <div className="flex rounded-xl overflow-hidden" style={{ border: '2px solid #dcfce7' }}>
+              {(['draw', 'type'] as InputMode[]).map(m => (
+                <button key={m} onClick={() => { setInputMode(m); setClosed(false); reset(); }}
+                  className="px-4 py-2 text-xs font-black uppercase tracking-widest transition-all"
+                  style={{ background: inputMode === m ? '#14532d' : 'white', color: inputMode === m ? 'white' : '#6b7280' }}
+                >
+                  {m === 'draw' ? '✏️ Draw' : '⌨️ Type'}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
-        <div className="flex gap-2 ml-auto items-end">
-          {inputMode === 'draw' && !closed && points.length >= 3 && (
-            <button onClick={closeShape} className="px-4 py-2 rounded-xl text-sm font-black" style={{ background: '#14532d', color: 'white' }}>
-              Close polygon
+        {layer === 'floor' && (
+          <div className="flex gap-2 ml-auto items-end">
+            {inputMode === 'draw' && !closed && points.length >= 3 && (
+              <button onClick={closeShape} className="px-4 py-2 rounded-xl text-sm font-black" style={{ background: '#14532d', color: 'white' }}>
+                Close polygon
+              </button>
+            )}
+            {inputMode === 'draw' && points.length > 0 && (
+              <button onClick={() => { if (closed) { setClosed(false); setWallTypes([]); } else { setPoints(p => p.slice(0, -1)); } }}
+                className="px-4 py-2 rounded-xl text-sm font-black"
+                style={{ border: '2px solid #e2e8f0', color: '#64748b', background: 'white' }}>
+                ↩ Undo
+              </button>
+            )}
+            <button onClick={reset} className="px-4 py-2 rounded-xl text-sm font-black" style={{ border: '2px solid #fecaca', color: '#ef4444', background: 'white' }}>
+              Clear
             </button>
-          )}
-          {inputMode === 'draw' && points.length > 0 && (
-            <button onClick={() => { if (closed) { setClosed(false); setWallTypes([]); } else { setPoints(p => p.slice(0, -1)); } }}
-              className="px-4 py-2 rounded-xl text-sm font-black"
-              style={{ border: '2px solid #e2e8f0', color: '#64748b', background: 'white' }}>
-              ↩ Undo
-            </button>
-          )}
-          <button onClick={reset} className="px-4 py-2 rounded-xl text-sm font-black" style={{ border: '2px solid #fecaca', color: '#ef4444', background: 'white' }}>
-            Clear
-          </button>
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Wall type legend */}
-      {closed && (
+      {layer === 'floor' && closed && (
         <div className="flex items-center gap-4 px-4 py-2 rounded-xl text-xs font-semibold" style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
           <span style={{ color: '#64748b' }}>Click a wall to cycle type:</span>
           {WALL_CYCLE.map(wt => (
@@ -548,9 +797,11 @@ export default function FloorPlanTool() {
       <div className="grid gap-6" style={{ gridTemplateColumns: '600px 1fr 320px', height: 660 }}>
 
         {/* 2D Canvas */}
-        <div className="rounded-2xl overflow-hidden flex flex-col" style={{ border: '2px solid #dcfce7', background: 'white' }}>
-          <div className="px-4 py-2 flex items-center justify-between shrink-0" style={{ borderBottom: '1px solid #f0fdf4' }}>
-            <span className="text-xs font-black uppercase tracking-widest" style={{ color: '#14532d' }}>2D PLAN VIEW</span>
+        <div className="rounded-2xl overflow-hidden flex flex-col" style={{ border: `2px solid ${layer === 'roof' ? '#6366f1' : '#dcfce7'}`, background: 'white' }}>
+          <div className="px-4 py-2 flex items-center justify-between shrink-0" style={{ borderBottom: `1px solid ${layer === 'roof' ? '#e0e7ff' : '#f0fdf4'}` }}>
+            <span className="text-xs font-black uppercase tracking-widest" style={{ color: layer === 'roof' ? '#6366f1' : '#14532d' }}>
+              {layer === 'roof' ? '2D ROOF PLAN' : '2D PLAN VIEW'}
+            </span>
             <span className="text-xs font-medium" style={{ color: '#86efac' }}>grid: 1m · snap: 0.5m</span>
           </div>
 
@@ -565,85 +816,272 @@ export default function FloorPlanTool() {
             >
               {gridLines}
 
-              {/* Draw mode preview */}
-              {inputMode === 'draw' && !closed && points.length > 0 && hoverPoint && (
-                <polyline points={previewPoints} fill="none" stroke="#86efac" strokeWidth={1.5} strokeDasharray="4 3" />
+              {/* ── ROOF LAYER rendering ── */}
+              {layer === 'roof' && (
+                <>
+                  {/* Faint floor plan reference */}
+                  {closed && activePoints.length >= 3 && (
+                    <polygon
+                      points={polyPts(activePoints)}
+                      fill="#f1f5f9"
+                      stroke="#cbd5e1"
+                      strokeWidth={1}
+                      opacity={0.5}
+                    />
+                  )}
+
+                  {/* Existing roof zones */}
+                  {roofZones.map(zone => {
+                    const color = ROOF_TYPE_COLOR[zone.type];
+                    const slopes = computeZoneSlopes(zone, northAngle);
+                    const centroid = polygonCentroid(zone.points);
+                    return (
+                      <g key={zone.id}>
+                        {/* Zone polygon */}
+                        <polygon
+                          points={polyPts(zone.points)}
+                          fill={color}
+                          fillOpacity={0.3}
+                          stroke={color}
+                          strokeOpacity={0.8}
+                          strokeWidth={2}
+                        />
+
+                        {/* Ridge line */}
+                        {zone.ridge && (
+                          <>
+                            <line
+                              x1={toSVG(zone.ridge.a.x)} y1={toSVG(zone.ridge.a.y)}
+                              x2={toSVG(zone.ridge.b.x)} y2={toSVG(zone.ridge.b.y)}
+                              stroke="white"
+                              strokeWidth={2.5}
+                              strokeDasharray="6 4"
+                            />
+                            <line
+                              x1={toSVG(zone.ridge.a.x)} y1={toSVG(zone.ridge.a.y)}
+                              x2={toSVG(zone.ridge.b.x)} y2={toSVG(zone.ridge.b.y)}
+                              stroke={color}
+                              strokeWidth={1}
+                              strokeDasharray="6 4"
+                              opacity={0.5}
+                            />
+                            <text
+                              x={(toSVG(zone.ridge.a.x) + toSVG(zone.ridge.b.x)) / 2}
+                              y={(toSVG(zone.ridge.a.y) + toSVG(zone.ridge.b.y)) / 2 - 5}
+                              textAnchor="middle"
+                              fontSize={8}
+                              fill="white"
+                              fontWeight="800"
+                              stroke={color}
+                              strokeWidth={2}
+                              paintOrder="stroke"
+                            >
+                              ridge
+                            </text>
+                          </>
+                        )}
+
+                        {/* Slope orientation arrows for each half */}
+                        {slopes.map((sl, si) => {
+                          const halfCentroid = sl.halfPoly ? polygonCentroid(sl.halfPoly) : centroid;
+                          return (
+                            <text
+                              key={si}
+                              x={toSVG(halfCentroid.x)}
+                              y={toSVG(halfCentroid.y) + 4}
+                              textAnchor="middle"
+                              fontSize={14}
+                              fill={color}
+                              fontWeight="900"
+                              opacity={0.9}
+                            >
+                              {ORIENT_ARROW[sl.orientation]}
+                            </text>
+                          );
+                        })}
+
+                        {/* Zone label */}
+                        <text
+                          x={toSVG(centroid.x)}
+                          y={toSVG(centroid.y) - 6}
+                          textAnchor="middle"
+                          fontSize={9}
+                          fill={color}
+                          fontWeight="800"
+                          stroke="white"
+                          strokeWidth={2.5}
+                          paintOrder="stroke"
+                        >
+                          {zone.label}
+                        </text>
+                      </g>
+                    );
+                  })}
+
+                  {/* Current roof polygon being drawn */}
+                  {roofPhase === 'polygon' && roofPolyPoints.length > 0 && (
+                    <>
+                      {roofPolyPoints.length >= 2 && (
+                        <polyline
+                          points={[...roofPolyPoints, ...(roofHover ? [roofHover] : [])].map(p => `${toSVG(p.x)},${toSVG(p.y)}`).join(' ')}
+                          fill="none"
+                          stroke="#6366f1"
+                          strokeWidth={1.5}
+                          strokeDasharray="4 3"
+                        />
+                      )}
+                      {roofPolyPoints.length === 1 && roofHover && (
+                        <line
+                          x1={toSVG(roofPolyPoints[0].x)} y1={toSVG(roofPolyPoints[0].y)}
+                          x2={toSVG(roofHover.x)} y2={toSVG(roofHover.y)}
+                          stroke="#6366f1"
+                          strokeWidth={1.5}
+                          strokeDasharray="4 3"
+                        />
+                      )}
+                      {roofPolyPoints.map((p, i) => (
+                        <circle key={i} cx={toSVG(p.x)} cy={toSVG(p.y)} r={i === 0 ? 6 : 4}
+                          fill={i === 0 ? '#6366f1' : '#818cf8'} stroke="white" strokeWidth={2} />
+                      ))}
+                      {roofHover && (
+                        <circle cx={toSVG(roofHover.x)} cy={toSVG(roofHover.y)} r={3} fill="none" stroke="#6366f1" strokeWidth={1.5} />
+                      )}
+                    </>
+                  )}
+
+                  {/* Ridge drawing phase */}
+                  {roofPhase === 'ridge' && (
+                    <>
+                      {/* Show closed polygon (faded) */}
+                      <polygon
+                        points={polyPts(roofPolyPoints)}
+                        fill={ROOF_TYPE_COLOR[newZoneType]}
+                        fillOpacity={0.2}
+                        stroke={ROOF_TYPE_COLOR[newZoneType]}
+                        strokeOpacity={0.6}
+                        strokeWidth={2}
+                      />
+                      {/* First ridge point */}
+                      {ridgePoints.length >= 1 && (
+                        <>
+                          <circle cx={toSVG(ridgePoints[0].x)} cy={toSVG(ridgePoints[0].y)} r={5}
+                            fill={ROOF_TYPE_COLOR[newZoneType]} stroke="white" strokeWidth={2} />
+                          {roofHover && (
+                            <line
+                              x1={toSVG(ridgePoints[0].x)} y1={toSVG(ridgePoints[0].y)}
+                              x2={toSVG(roofHover.x)} y2={toSVG(roofHover.y)}
+                              stroke="white"
+                              strokeWidth={2}
+                              strokeDasharray="6 4"
+                            />
+                          )}
+                        </>
+                      )}
+                      {roofHover && (
+                        <circle cx={toSVG(roofHover.x)} cy={toSVG(roofHover.y)} r={3} fill="none" stroke={ROOF_TYPE_COLOR[newZoneType]} strokeWidth={1.5} />
+                      )}
+                    </>
+                  )}
+                </>
               )}
 
-              {/* Closed polygon fill */}
-              {closed && activePoints.length >= 3 && (
-                <polygon points={polyPts(activePoints)} fill="#f0fdf4" stroke="none" />
+              {/* ── FLOOR LAYER rendering ── */}
+              {layer === 'floor' && (
+                <>
+                  {/* Faint roof zones reference */}
+                  {roofZones.map(zone => (
+                    <polygon
+                      key={zone.id}
+                      points={polyPts(zone.points)}
+                      fill={ROOF_TYPE_COLOR[zone.type]}
+                      fillOpacity={0.15}
+                      stroke={ROOF_TYPE_COLOR[zone.type]}
+                      strokeOpacity={0.3}
+                      strokeWidth={1}
+                    />
+                  ))}
+
+                  {/* Draw mode preview */}
+                  {inputMode === 'draw' && !closed && points.length > 0 && hoverPoint && (
+                    <polyline points={previewPoints} fill="none" stroke="#86efac" strokeWidth={1.5} strokeDasharray="4 3" />
+                  )}
+
+                  {/* Closed polygon fill */}
+                  {closed && activePoints.length >= 3 && (
+                    <polygon points={polyPts(activePoints)} fill="#f0fdf4" stroke="none" />
+                  )}
+
+                  {/* Coloured wall segments */}
+                  {closed && wallSegs.map(seg => (
+                    <line
+                      key={seg.i}
+                      x1={toSVG(seg.a.x)} y1={toSVG(seg.a.y)}
+                      x2={toSVG(seg.b.x)} y2={toSVG(seg.b.y)}
+                      stroke={WALL_COLOR[seg.type]}
+                      strokeWidth={3.5}
+                      strokeLinecap="round"
+                    />
+                  ))}
+
+                  {/* Open polyline */}
+                  {!closed && activePoints.length >= 2 && (
+                    <polyline points={polyPts(activePoints)} fill="none" stroke="#14532d" strokeWidth={2} />
+                  )}
+
+                  {/* Type mode: dashed closing line back to start */}
+                  {inputMode === 'type' && !closed && walls.length >= 2 && (
+                    <line
+                      x1={toSVG(tip.x)} y1={toSVG(tip.y)}
+                      x2={toSVG(START.x)} y2={toSVG(START.y)}
+                      stroke="#86efac" strokeWidth={1.5} strokeDasharray="5 4"
+                    />
+                  )}
+
+                  {/* Wall labels: length + orientation (closed only) */}
+                  {closed && wallSegs.map(seg => {
+                    const mx = (toSVG(seg.a.x) + toSVG(seg.b.x)) / 2;
+                    const my = (toSVG(seg.a.y) + toSVG(seg.b.y)) / 2;
+                    const dx = seg.b.x - seg.a.x;
+                    const dy = seg.b.y - seg.a.y;
+                    const len2 = Math.sqrt(dx * dx + dy * dy);
+                    // Normal offset (inward)
+                    const nx = -(dy / len2) * 14;
+                    const ny = (dx / len2) * 14;
+                    return (
+                      <g key={seg.i}>
+                        <text x={mx + nx} y={my + ny} textAnchor="middle" fontSize={9} fill={WALL_COLOR[seg.type]} fontWeight="700">
+                          {ORIENT_ARROW[seg.orientation]} {seg.len.toFixed(1)}m
+                        </text>
+                      </g>
+                    );
+                  })}
+
+                  {/* Open mode length labels (type mode, not closed) */}
+                  {!closed && inputMode === 'type' && walls.map((w, i) => {
+                    const a = typePoints[i], b = typePoints[i + 1];
+                    const mx = (toSVG(a.x) + toSVG(b.x)) / 2;
+                    const my = (toSVG(a.y) + toSVG(b.y)) / 2;
+                    return (
+                      <text key={i} x={mx} y={my - 6} textAnchor="middle" fontSize={9} fill="#14532d" fontWeight="700">
+                        {w.len.toFixed(1)}m
+                      </text>
+                    );
+                  })}
+
+                  {/* Points */}
+                  {activePoints.map((p, i) => (
+                    <circle key={i} cx={toSVG(p.x)} cy={toSVG(p.y)} r={i === 0 ? 6 : 4}
+                      fill={i === 0 ? '#16a34a' : '#14532d'} stroke="white" strokeWidth={2} />
+                  ))}
+
+                  {/* Draw mode hover point */}
+                  {inputMode === 'draw' && !closed && hoverPoint && (
+                    <circle cx={toSVG(hoverPoint.x)} cy={toSVG(hoverPoint.y)} r={3} fill="none" stroke="#86efac" strokeWidth={1.5} />
+                  )}
+                </>
               )}
 
-              {/* Coloured wall segments */}
-              {closed && wallSegs.map(seg => (
-                <line
-                  key={seg.i}
-                  x1={toSVG(seg.a.x)} y1={toSVG(seg.a.y)}
-                  x2={toSVG(seg.b.x)} y2={toSVG(seg.b.y)}
-                  stroke={WALL_COLOR[seg.type]}
-                  strokeWidth={3.5}
-                  strokeLinecap="round"
-                />
-              ))}
-
-              {/* Open polyline */}
-              {!closed && activePoints.length >= 2 && (
-                <polyline points={polyPts(activePoints)} fill="none" stroke="#14532d" strokeWidth={2} />
-              )}
-
-              {/* Type mode: dashed closing line back to start */}
-              {inputMode === 'type' && !closed && walls.length >= 2 && (
-                <line
-                  x1={toSVG(tip.x)} y1={toSVG(tip.y)}
-                  x2={toSVG(START.x)} y2={toSVG(START.y)}
-                  stroke="#86efac" strokeWidth={1.5} strokeDasharray="5 4"
-                />
-              )}
-
-              {/* Wall labels: length + orientation (closed only) */}
-              {closed && wallSegs.map(seg => {
-                const mx = (toSVG(seg.a.x) + toSVG(seg.b.x)) / 2;
-                const my = (toSVG(seg.a.y) + toSVG(seg.b.y)) / 2;
-                const dx = seg.b.x - seg.a.x;
-                const dy = seg.b.y - seg.a.y;
-                const len2 = Math.sqrt(dx * dx + dy * dy);
-                // Normal offset (inward)
-                const nx = -(dy / len2) * 14;
-                const ny = (dx / len2) * 14;
-                return (
-                  <g key={seg.i}>
-                    <text x={mx + nx} y={my + ny} textAnchor="middle" fontSize={9} fill={WALL_COLOR[seg.type]} fontWeight="700">
-                      {ORIENT_ARROW[seg.orientation]} {seg.len.toFixed(1)}m
-                    </text>
-                  </g>
-                );
-              })}
-
-              {/* Open mode length labels (type mode, not closed) */}
-              {!closed && inputMode === 'type' && walls.map((w, i) => {
-                const a = typePoints[i], b = typePoints[i + 1];
-                const mx = (toSVG(a.x) + toSVG(b.x)) / 2;
-                const my = (toSVG(a.y) + toSVG(b.y)) / 2;
-                return (
-                  <text key={i} x={mx} y={my - 6} textAnchor="middle" fontSize={9} fill="#14532d" fontWeight="700">
-                    {w.len.toFixed(1)}m
-                  </text>
-                );
-              })}
-
-              {/* Points */}
-              {activePoints.map((p, i) => (
-                <circle key={i} cx={toSVG(p.x)} cy={toSVG(p.y)} r={i === 0 ? 6 : 4}
-                  fill={i === 0 ? '#16a34a' : '#14532d'} stroke="white" strokeWidth={2} />
-              ))}
-
-              {/* Draw mode hover point */}
-              {inputMode === 'draw' && !closed && hoverPoint && (
-                <circle cx={toSVG(hoverPoint.x)} cy={toSVG(hoverPoint.y)} r={3} fill="none" stroke="#86efac" strokeWidth={1.5} />
-              )}
-
-              {/* Axis labels */}
+              {/* Axis labels (always shown) */}
               {[0, 5, 10, 15, 20].map(m => (
                 <g key={m}>
                   <text x={toSVG(m) + 2} y={10} fontSize={9} fill="#94a3b8">{m}m</text>
@@ -664,8 +1102,8 @@ export default function FloorPlanTool() {
             </svg>
           </div>
 
-          {/* Type mode input strip */}
-          {inputMode === 'type' && !closed && (
+          {/* ── FLOOR LAYER bottom strips ── */}
+          {layer === 'floor' && inputMode === 'type' && !closed && (
             <div className="shrink-0 p-3" style={{ borderTop: '2px solid #f0fdf4', background: '#fafff8' }}>
               <div className="text-xs font-black uppercase tracking-widest mb-2" style={{ color: '#94a3b8' }}>
                 {walls.length === 0 ? 'WALL 1 — starting at (5, 5)' : `WALL ${walls.length + 1} — from (${tip.x.toFixed(1)}, ${tip.y.toFixed(1)})`}
@@ -736,8 +1174,7 @@ export default function FloorPlanTool() {
             </div>
           )}
 
-          {/* Type mode wall history */}
-          {inputMode === 'type' && walls.length > 0 && (
+          {layer === 'floor' && inputMode === 'type' && walls.length > 0 && (
             <div className="shrink-0 overflow-y-auto" style={{ maxHeight: 140, borderTop: '1px solid #f0fdf4', background: 'white' }}>
               <div className="px-3 pt-2 pb-1 text-xs font-black uppercase tracking-widest" style={{ color: '#94a3b8' }}>
                 WALLS ENTERED
@@ -747,6 +1184,82 @@ export default function FloorPlanTool() {
                   <WallHistoryRow key={i} index={i} dir={w.dir} len={w.len} onDelete={() => deleteWall(i)} />
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* ── ROOF LAYER bottom strip ── */}
+          {layer === 'roof' && roofPhase === 'idle' && (
+            <div className="shrink-0 p-3 space-y-2" style={{ borderTop: '2px solid #e0e7ff', background: '#f5f3ff' }}>
+              <div className="text-xs font-black uppercase tracking-widest" style={{ color: '#6366f1' }}>ADD ROOF ZONE</div>
+              <div className="flex flex-wrap gap-2 items-end">
+                <input
+                  type="text"
+                  value={newZoneLabel}
+                  onChange={e => setNewZoneLabel(e.target.value)}
+                  placeholder="Label"
+                  className="rounded-lg px-2 py-1.5 text-xs font-semibold focus:outline-none w-20"
+                  style={{ border: '2px solid #c7d2fe' }}
+                />
+                <select
+                  value={newZoneType}
+                  onChange={e => setNewZoneType(e.target.value as RoofType)}
+                  className="rounded-lg px-2 py-1.5 text-xs font-semibold focus:outline-none"
+                  style={{ border: '2px solid #c7d2fe', color: '#4338ca' }}
+                >
+                  {(Object.entries(ROOF_TYPE_LABEL) as [RoofType, string][]).map(([k, v]) => (
+                    <option key={k} value={k}>{v}</option>
+                  ))}
+                </select>
+                {pitchNeedsDisplay(newZoneType) && (
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number" min="1" max="90" step="1"
+                      value={newZonePitch}
+                      onChange={e => setNewZonePitch(parseInt(e.target.value) || 35)}
+                      className="rounded-lg px-2 py-1.5 text-xs font-mono font-semibold w-14 focus:outline-none"
+                      style={{ border: '2px solid #c7d2fe' }}
+                    />
+                    <span className="text-xs font-semibold" style={{ color: '#818cf8' }}>° pitch</span>
+                  </div>
+                )}
+                <button
+                  onClick={() => { setRoofPhase('polygon'); setRoofPolyPoints([]); setRidgePoints([]); }}
+                  className="px-3 py-1.5 rounded-lg text-xs font-black"
+                  style={{ background: '#6366f1', color: 'white' }}
+                >
+                  Draw Zone
+                </button>
+              </div>
+
+              {/* Existing zones list */}
+              {roofZones.length > 0 && (
+                <div className="space-y-1 mt-1 max-h-28 overflow-y-auto">
+                  {roofZones.map(zone => (
+                    <div key={zone.id} className="flex items-center gap-2 px-2 py-1 rounded-lg" style={{ background: 'white', border: `1px solid ${ROOF_TYPE_COLOR[zone.type]}40` }}>
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: ROOF_TYPE_COLOR[zone.type] }} />
+                      <span className="text-xs font-bold flex-1 truncate" style={{ color: '#334155' }}>{zone.label}</span>
+                      <span className="text-xs" style={{ color: '#94a3b8' }}>{ROOF_TYPE_LABEL[zone.type]}</span>
+                      <button
+                        onClick={() => setRoofZones(prev => prev.filter(z => z.id !== zone.id))}
+                        className="text-xs px-1 py-0.5 rounded shrink-0"
+                        style={{ color: '#ef4444', background: '#fef2f2' }}
+                      >✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {layer === 'roof' && roofPhase === 'polygon' && (
+            <div className="shrink-0 px-4 py-3 text-xs font-semibold" style={{ borderTop: '2px solid #e0e7ff', background: '#f5f3ff', color: '#4338ca' }}>
+              Drawing polygon — click to place corners, click near start (within 0.6m) to close
+            </div>
+          )}
+
+          {layer === 'roof' && roofPhase === 'ridge' && (
+            <div className="shrink-0 px-4 py-3 text-xs font-semibold" style={{ borderTop: '2px solid #e0e7ff', background: '#f5f3ff', color: '#4338ca' }}>
+              Draw ridge line — click to place point {ridgePoints.length + 1} of 2
             </div>
           )}
         </div>
@@ -770,7 +1283,46 @@ export default function FloorPlanTool() {
                 {/* Key metrics */}
                 <TakeoffRow label="Total Floor Area (TFA)" value={floorArea} unit="m²" highlight />
                 <TakeoffRow label="Perimeter" value={perimeter} unit="m" />
-                <TakeoffRow label="Roof Area" value={effectiveRoofArea} unit="m²" note={roofType === 'pitched' ? '+20% pitch' : undefined} />
+
+                {/* Roof area — zones or fallback */}
+                {roofZones.length === 0 ? (
+                  <TakeoffRow label="Roof Area" value={effectiveRoofArea} unit="m²" note={roofType === 'pitched' ? '+20% pitch' : undefined} />
+                ) : (
+                  <div style={{ borderTop: '1px dashed #dcfce7', paddingTop: 12 }}>
+                    <div className="text-xs font-black uppercase tracking-widest mb-2" style={{ color: '#94a3b8' }}>ROOF ELEMENTS</div>
+                    <div className="space-y-2">
+                      {roofZones.map(zone => {
+                        const slopes = computeZoneSlopes(zone, northAngle);
+                        const zoneTotal = slopes.reduce((s, sl) => s + sl.actualArea, 0);
+                        const hasRidge = zone.ridge && NEEDS_RIDGE.includes(zone.type);
+                        return (
+                          <div key={zone.id}>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="flex items-center gap-1.5 text-xs font-bold" style={{ color: '#334155' }}>
+                                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: ROOF_TYPE_COLOR[zone.type] }} />
+                                {zone.label}
+                              </span>
+                              <div className="text-right">
+                                <span className="text-sm font-black font-mono" style={{ color: '#334155' }}>{zoneTotal.toFixed(1)}</span>
+                                <span className="text-xs ml-1" style={{ color: '#94a3b8' }}>m²</span>
+                              </div>
+                            </div>
+                            <div className="text-xs pl-3.5 mb-0.5" style={{ color: '#94a3b8' }}>{ROOF_TYPE_LABEL[zone.type]}{zone.pitch > 0 && pitchNeedsDisplay(zone.type) ? ` · ${zone.pitch}°` : ''}</div>
+                            {hasRidge && slopes.map((sl, si) => (
+                              <div key={si} className="flex items-center justify-between gap-1 pl-5 text-xs" style={{ color: '#64748b' }}>
+                                <span>{ORIENT_ARROW[sl.orientation]} {sl.orientation}</span>
+                                <span className="font-mono">{sl.planArea.toFixed(1)}m² plan → {sl.actualArea.toFixed(1)}m² actual</span>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="mt-2 pt-2" style={{ borderTop: '1px solid #f0fdf4' }}>
+                      <TakeoffRow label="Total roof area" value={totalRoofActualArea} unit="m²" highlight />
+                    </div>
+                  </div>
+                )}
 
                 {/* Individual wall breakdown */}
                 <div style={{ borderTop: '1px dashed #dcfce7', paddingTop: 12 }}>
@@ -817,7 +1369,7 @@ export default function FloorPlanTool() {
                   <div className="text-xs space-y-1" style={{ color: '#94a3b8' }}>
                     <div>• North = {northAngle}° CW from canvas up</div>
                     <div>• Storey height: {storeyHeight}m</div>
-                    <div>• Roof: {roofType === 'pitched' ? 'pitched (×1.2)' : 'flat'}</div>
+                    <div>• Roof (3D): {roofType === 'pitched' ? 'pitched (×1.2)' : 'flat'}</div>
                     <div>• Click walls on plan to change type</div>
                   </div>
                 </div>
