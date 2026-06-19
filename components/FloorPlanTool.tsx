@@ -7,6 +7,7 @@ import * as THREE from 'three';
 interface Point { x: number; y: number; } // metres
 
 type Orientation = 'North' | 'East' | 'South' | 'West';
+type Dir = 'N' | 'S' | 'E' | 'W';
 type InputMode = 'draw' | 'type';
 
 function wallOrientation(a: Point, b: Point): Orientation {
@@ -34,6 +35,15 @@ function polygonArea(pts: Point[]): number {
 
 function wallLength(a: Point, b: Point): number {
   return Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2);
+}
+
+function applyDir(pt: Point, dir: Dir, len: number): Point {
+  switch (dir) {
+    case 'N': return { x: pt.x, y: pt.y - len };
+    case 'S': return { x: pt.x, y: pt.y + len };
+    case 'E': return { x: pt.x + len, y: pt.y };
+    case 'W': return { x: pt.x - len, y: pt.y };
+  }
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -79,30 +89,25 @@ function ThreeViewer({ points, storeyHeight, roofType }: {
     sun2.position.set(-10, 10, -5);
     scene.add(sun2);
 
-    // Centre polygon
     const cx = points.reduce((s, p) => s + p.x, 0) / points.length;
     const cy = points.reduce((s, p) => s + p.y, 0) / points.length;
     const centred = points.map(p => ({ x: p.x - cx, y: p.y - cy }));
 
-    // Build Three.js shape (SVG y flipped → Three.js z)
     const shape = new THREE.Shape();
     shape.moveTo(centred[0].x, -centred[0].y);
     for (let i = 1; i < centred.length; i++) shape.lineTo(centred[i].x, -centred[i].y);
     shape.closePath();
 
-    // Walls
     const wallGeo = new THREE.ExtrudeGeometry(shape, { depth: storeyHeight, bevelEnabled: false });
     const wallMesh = new THREE.Mesh(wallGeo, new THREE.MeshLambertMaterial({ color: '#d4edda', side: THREE.DoubleSide }));
     wallMesh.rotation.x = -Math.PI / 2;
     wallMesh.castShadow = true;
     scene.add(wallMesh);
 
-    // Wall wireframe
     const wallWire = new THREE.Mesh(wallGeo, new THREE.MeshBasicMaterial({ color: '#14532d', wireframe: true, opacity: 0.12, transparent: true }));
     wallWire.rotation.x = -Math.PI / 2;
     scene.add(wallWire);
 
-    // ── Roof ──────────────────────────────────────────────────────────────────
     if (roofType === 'flat') {
       const roofGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.2, bevelEnabled: false });
       const roofMesh = new THREE.Mesh(roofGeo, new THREE.MeshLambertMaterial({ color: '#86efac' }));
@@ -110,68 +115,48 @@ function ThreeViewer({ points, storeyHeight, roofType }: {
       roofMesh.position.y = storeyHeight;
       scene.add(roofMesh);
     } else {
-      // Pitched roof — build actual surface geometry
       const xs = centred.map(p => p.x);
       const zs = centred.map(p => -p.y);
       const minX = Math.min(...xs), maxX = Math.max(...xs);
       const minZ = Math.min(...zs), maxZ = Math.max(...zs);
       const spanX = maxX - minX;
       const spanZ = maxZ - minZ;
-
       const ridgeH = Math.min(spanX, spanZ) * 0.45;
       const ridgeY = storeyHeight + ridgeH;
       const ridgeAlongX = spanX >= spanZ;
 
       function projectToRidge(x: number, z: number): THREE.Vector3 {
         if (ridgeAlongX) {
-          const clampedX = Math.max(minX, Math.min(maxX, x));
-          return new THREE.Vector3(clampedX, ridgeY, (minZ + maxZ) / 2);
+          return new THREE.Vector3(Math.max(minX, Math.min(maxX, x)), ridgeY, (minZ + maxZ) / 2);
         } else {
-          const clampedZ = Math.max(minZ, Math.min(maxZ, z));
-          return new THREE.Vector3((minX + maxX) / 2, ridgeY, clampedZ);
+          return new THREE.Vector3((minX + maxX) / 2, ridgeY, Math.max(minZ, Math.min(maxZ, z)));
         }
       }
 
       const eaveVerts = centred.map(p => new THREE.Vector3(p.x, storeyHeight, -p.y));
       const positions: number[] = [];
-
       for (let i = 0; i < eaveVerts.length; i++) {
         const a = eaveVerts[i];
         const b = eaveVerts[(i + 1) % eaveVerts.length];
         const ra = projectToRidge(a.x, a.z);
         const rb = projectToRidge(b.x, b.z);
-
         if (ra.distanceTo(rb) < 0.01) {
-          // Gable triangle
           positions.push(a.x, a.y, a.z, b.x, b.y, b.z, ra.x, ra.y, ra.z);
         } else {
-          // Sloped panel (quad as 2 triangles)
           positions.push(a.x, a.y, a.z, b.x, b.y, b.z, rb.x, rb.y, rb.z);
           positions.push(a.x, a.y, a.z, rb.x, rb.y, rb.z, ra.x, ra.y, ra.z);
         }
       }
-
       const roofGeo = new THREE.BufferGeometry();
       roofGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
       roofGeo.computeVertexNormals();
-
-      const roofMat = new THREE.MeshLambertMaterial({ color: '#4ade80', side: THREE.DoubleSide });
-      const roofMesh = new THREE.Mesh(roofGeo, roofMat);
-      roofMesh.castShadow = true;
-      scene.add(roofMesh);
-
-      const roofWire = new THREE.Mesh(roofGeo, new THREE.MeshBasicMaterial({ color: '#14532d', wireframe: true, opacity: 0.2, transparent: true }));
-      scene.add(roofWire);
+      scene.add(new THREE.Mesh(roofGeo, new THREE.MeshLambertMaterial({ color: '#4ade80', side: THREE.DoubleSide })));
+      scene.add(new THREE.Mesh(roofGeo, new THREE.MeshBasicMaterial({ color: '#14532d', wireframe: true, opacity: 0.2, transparent: true })));
     }
 
-    // Ground
-    const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(40, 40),
-      new THREE.MeshLambertMaterial({ color: '#dcfce7' })
-    );
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshLambertMaterial({ color: '#dcfce7' }));
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = -0.01;
-    ground.receiveShadow = true;
     scene.add(ground);
 
     const grid = new THREE.GridHelper(40, 40, '#86efac', '#86efac');
@@ -179,7 +164,6 @@ function ThreeViewer({ points, storeyHeight, roofType }: {
     (grid.material as THREE.Material).transparent = true;
     scene.add(grid);
 
-    // Orbit controls
     let isDragging = false;
     let prevMouse = { x: 0, y: 0 };
     const spherical = { theta: Math.PI / 4, phi: Math.PI / 3, radius: 30 };
@@ -243,6 +227,19 @@ function ThreeViewer({ points, storeyHeight, roofType }: {
   return <div ref={mountRef} className="w-full h-full rounded-2xl overflow-hidden cursor-grab" style={{ border: '2px solid #dcfce7' }} />;
 }
 
+// ─── Wall History Row ─────────────────────────────────────────────────────────
+function WallHistoryRow({ index, dir, len, onDelete }: { index: number; dir: Dir; len: number; onDelete: () => void }) {
+  const arrow: Record<Dir, string> = { N: '↑', S: '↓', E: '→', W: '←' };
+  return (
+    <div className="flex items-center justify-between gap-2 py-1 px-2 rounded-lg" style={{ background: '#f0fdf4' }}>
+      <span className="text-xs font-black" style={{ color: '#86efac' }}>#{index + 1}</span>
+      <span className="text-sm font-black" style={{ color: '#14532d' }}>{arrow[dir]} {dir}</span>
+      <span className="text-sm font-mono font-bold" style={{ color: '#334155' }}>{len.toFixed(1)} m</span>
+      <button onClick={onDelete} className="text-xs px-1.5 py-0.5 rounded" style={{ color: '#ef4444', background: '#fef2f2' }}>✕</button>
+    </div>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function FloorPlanTool() {
   const [points, setPoints] = useState<Point[]>([]);
@@ -252,14 +249,28 @@ export default function FloorPlanTool() {
   const [roofType, setRoofType] = useState<'flat' | 'pitched'>('flat');
   const [inputMode, setInputMode] = useState<InputMode>('draw');
 
-  const [rectW, setRectW] = useState('');
-  const [rectD, setRectD] = useState('');
-  const [typeX, setTypeX] = useState('');
-  const [typeY, setTypeY] = useState('');
-  const [offsetDir, setOffsetDir] = useState<'N' | 'S' | 'E' | 'W'>('E');
-  const [offsetLen, setOffsetLen] = useState('');
+  const [dir, setDir] = useState<Dir>('E');
+  const [lenInput, setLenInput] = useState('');
+  const [walls, setWalls] = useState<{ dir: Dir; len: number }[]>([]);
+  const lenRef = useRef<HTMLInputElement>(null);
 
   const svgRef = useRef<SVGSVGElement>(null);
+
+  const START: Point = { x: 5, y: 5 };
+  const typePoints: Point[] = (() => {
+    const pts: Point[] = [START];
+    for (const w of walls) {
+      pts.push(applyDir(pts[pts.length - 1], w.dir, w.len));
+    }
+    return pts;
+  })();
+
+  const activePoints = inputMode === 'type' ? typePoints : points;
+  const isClosed = closed;
+
+  const tip = typePoints[typePoints.length - 1];
+  const distToStart = walls.length >= 2 ? wallLength(tip, START) : Infinity;
+  const canClose = walls.length >= 2;
 
   const getSVGPoint = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
     const rect = svgRef.current!.getBoundingClientRect();
@@ -283,79 +294,42 @@ export default function FloorPlanTool() {
     setHoverPoint(getSVGPoint(e));
   }, [closed, getSVGPoint, inputMode]);
 
-  const reset = () => { setPoints([]); setHoverPoint(null); setClosed(false); };
-
-  const addRectangle = () => {
-    const w = parseFloat(rectW);
-    const d = parseFloat(rectD);
-    if (!w || !d || w <= 0 || d <= 0) return;
-    const ox = snap(10 - w / 2);
-    const oy = snap(10 - d / 2);
-    setPoints([
-      { x: ox, y: oy },
-      { x: ox + w, y: oy },
-      { x: ox + w, y: oy + d },
-      { x: ox, y: oy + d },
-    ]);
-    setClosed(true);
-  };
-
-  const addAbsolutePoint = () => {
-    const x = parseFloat(typeX);
-    const y = parseFloat(typeY);
-    if (isNaN(x) || isNaN(y) || closed) return;
-    const pt = { x: snap(x), y: snap(y) };
-    if (points.length >= 3) {
-      const first = points[0];
-      if (Math.sqrt((pt.x - first.x) ** 2 + (pt.y - first.y) ** 2) < 0.3) {
-        setClosed(true); return;
-      }
-    }
-    setPoints(prev => [...prev, pt]);
-    setTypeX('');
-    setTypeY('');
-  };
-
-  const addOffsetPoint = () => {
-    const len = parseFloat(offsetLen);
+  const addWall = useCallback(() => {
+    const len = parseFloat(lenInput);
     if (!len || len <= 0 || closed) return;
-    const last = points.length > 0 ? points[points.length - 1] : { x: 5, y: 5 };
-    const offsets: Record<'N' | 'S' | 'E' | 'W', Point> = {
-      N: { x: last.x, y: last.y - len },
-      S: { x: last.x, y: last.y + len },
-      E: { x: last.x + len, y: last.y },
-      W: { x: last.x - len, y: last.y },
-    };
-    const pt = { x: snap(offsets[offsetDir].x), y: snap(offsets[offsetDir].y) };
-    if (points.length >= 3) {
-      const first = points[0];
-      if (Math.sqrt((pt.x - first.x) ** 2 + (pt.y - first.y) ** 2) < 0.3) {
-        setClosed(true); return;
-      }
-    }
-    setPoints(prev => [...prev, pt]);
-    setOffsetLen('');
+    const snapped = Math.round(len * 10) / 10;
+    setWalls(prev => [...prev, { dir, len: snapped }]);
+    setLenInput('');
+    setTimeout(() => lenRef.current?.focus(), 0);
+  }, [lenInput, dir, closed]);
+
+  const deleteWall = (index: number) => {
+    setWalls(prev => prev.filter((_, i) => i !== index));
+    setClosed(false);
   };
 
-  const removeLastPoint = () => {
-    if (closed) { setClosed(false); return; }
-    setPoints(prev => prev.slice(0, -1));
+  const reset = () => {
+    setPoints([]);
+    setWalls([]);
+    setHoverPoint(null);
+    setClosed(false);
+    setLenInput('');
   };
 
-  const floorArea = closed && points.length >= 3 ? polygonArea(points) : 0;
+  const floorArea = isClosed && activePoints.length >= 3 ? polygonArea(activePoints) : 0;
   const effectiveRoofArea = roofType === 'pitched' ? floorArea * 1.2 : floorArea;
   const wallsByOrientation: Record<Orientation, number> = { North: 0, East: 0, South: 0, West: 0 };
   let totalWallArea = 0;
-  if (closed && points.length >= 3) {
-    for (let i = 0; i < points.length; i++) {
-      const a = points[i], b = points[(i + 1) % points.length];
+  if (isClosed && activePoints.length >= 3) {
+    for (let i = 0; i < activePoints.length; i++) {
+      const a = activePoints[i], b = activePoints[(i + 1) % activePoints.length];
       const area = wallLength(a, b) * storeyHeight;
       wallsByOrientation[wallOrientation(a, b)] += area;
       totalWallArea += area;
     }
   }
-  const perimeter = closed && points.length >= 3
-    ? points.reduce((sum, p, i) => sum + wallLength(p, points[(i + 1) % points.length]), 0)
+  const perimeter = isClosed && activePoints.length >= 3
+    ? activePoints.reduce((sum, p, i) => sum + wallLength(p, activePoints[(i + 1) % activePoints.length]), 0)
     : 0;
 
   const gridLines = [];
@@ -365,10 +339,26 @@ export default function FloorPlanTool() {
     gridLines.push(<line key={`h${i}`} x1={0} y1={pos} x2={GRID_SIZE} y2={pos} stroke="#dcfce7" strokeWidth={i % 5 === 0 ? 1.5 : 0.5} />);
   }
 
-  const polyPoints = points.map(p => `${toSVG(p.x)},${toSVG(p.y)}`).join(' ');
+  const polyPts = (pts: Point[]) => pts.map(p => `${toSVG(p.x)},${toSVG(p.y)}`).join(' ');
   const previewPoints = hoverPoint && points.length > 0
     ? [...points, hoverPoint].map(p => `${toSVG(p.x)},${toSVG(p.y)}`).join(' ')
-    : polyPoints;
+    : polyPts(points);
+
+  const DIRS: Dir[] = ['N', 'E', 'S', 'W'];
+  const handleLenKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') { addWall(); return; }
+    if (e.key === 'ArrowUp') { e.preventDefault(); setDir('N'); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setDir('S'); }
+    if (e.key === 'ArrowRight') { e.preventDefault(); setDir('E'); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); setDir('W'); }
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      setDir(d => DIRS[(DIRS.indexOf(d) + (e.shiftKey ? 3 : 1)) % 4]);
+    }
+  };
+
+  const dirArrow: Record<Dir, string> = { N: '↑', S: '↓', E: '→', W: '←' };
+  const dirLabel: Record<Dir, string> = { N: 'NORTH', S: 'SOUTH', E: 'EAST', W: 'WEST' };
 
   return (
     <div className="max-w-[1600px] mx-auto p-6 space-y-6">
@@ -407,14 +397,9 @@ export default function FloorPlanTool() {
           <label className="block text-xs font-black uppercase tracking-widest mb-1" style={{ color: '#64748b' }}>Input Mode</label>
           <div className="flex rounded-xl overflow-hidden" style={{ border: '2px solid #dcfce7' }}>
             {(['draw', 'type'] as InputMode[]).map(m => (
-              <button
-                key={m}
-                onClick={() => setInputMode(m)}
+              <button key={m} onClick={() => { setInputMode(m); setClosed(false); }}
                 className="px-4 py-2 text-xs font-black uppercase tracking-widest transition-all"
-                style={{
-                  background: inputMode === m ? '#14532d' : 'white',
-                  color: inputMode === m ? 'white' : '#6b7280',
-                }}
+                style={{ background: inputMode === m ? '#14532d' : 'white', color: inputMode === m ? 'white' : '#6b7280' }}
               >
                 {m === 'draw' ? '✏️ Draw' : '⌨️ Type'}
               </button>
@@ -423,13 +408,15 @@ export default function FloorPlanTool() {
         </div>
 
         <div className="flex gap-2 ml-auto items-end">
-          {!closed && points.length >= 3 && (
+          {inputMode === 'draw' && !closed && points.length >= 3 && (
             <button onClick={() => setClosed(true)} className="px-4 py-2 rounded-xl text-sm font-black" style={{ background: '#14532d', color: 'white' }}>
               Close polygon
             </button>
           )}
-          {points.length > 0 && (
-            <button onClick={removeLastPoint} className="px-4 py-2 rounded-xl text-sm font-black" style={{ border: '2px solid #e2e8f0', color: '#64748b', background: 'white' }}>
+          {inputMode === 'draw' && points.length > 0 && (
+            <button onClick={() => { if (closed) { setClosed(false); } else { setPoints(p => p.slice(0, -1)); } }}
+              className="px-4 py-2 rounded-xl text-sm font-black"
+              style={{ border: '2px solid #e2e8f0', color: '#64748b', background: 'white' }}>
               ↩ Undo
             </button>
           )}
@@ -437,19 +424,9 @@ export default function FloorPlanTool() {
             Clear
           </button>
         </div>
-
-        <div className="w-full text-xs font-medium" style={{ color: '#94a3b8' }}>
-          {inputMode === 'draw'
-            ? closed
-              ? 'Plan complete. Drag to rotate 3D view. Scroll to zoom.'
-              : points.length === 0
-                ? 'Click on the grid to place corners. Snap: 0.5m. Click near the first point (●) to close.'
-                : `${points.length} point${points.length !== 1 ? 's' : ''} placed — click near the first point or press Close polygon.`
-            : 'Use the measurement panels below the grid to enter exact dimensions.'}
-        </div>
       </div>
 
-      <div className="grid grid-cols-[600px_1fr_280px] gap-6" style={{ height: 620 }}>
+      <div className="grid gap-6" style={{ gridTemplateColumns: '600px 1fr 280px', height: 640 }}>
 
         <div className="rounded-2xl overflow-hidden flex flex-col" style={{ border: '2px solid #dcfce7', background: 'white' }}>
           <div className="px-4 py-2 flex items-center justify-between shrink-0" style={{ borderBottom: '1px solid #f0fdf4' }}>
@@ -457,28 +434,34 @@ export default function FloorPlanTool() {
             <span className="text-xs font-medium" style={{ color: '#86efac' }}>grid: 1m · snap: 0.5m</span>
           </div>
 
-          <div className="flex-1 overflow-hidden relative">
+          <div className="relative flex-1 overflow-hidden">
             <svg
               ref={svgRef}
-              width={GRID_SIZE}
-              height={GRID_SIZE}
+              width={GRID_SIZE} height={GRID_SIZE}
               onClick={handleClick}
               onMouseMove={handleMouseMove}
               className={inputMode === 'draw' && !closed ? 'cursor-crosshair' : 'cursor-default'}
               style={{ userSelect: 'none' }}
             >
               {gridLines}
-              {!closed && points.length > 0 && hoverPoint && inputMode === 'draw' && (
+              {inputMode === 'draw' && !closed && points.length > 0 && hoverPoint && (
                 <polyline points={previewPoints} fill="none" stroke="#86efac" strokeWidth={1.5} strokeDasharray="4 3" />
               )}
-              {closed && points.length >= 3 && (
-                <polygon points={polyPoints} fill="#f0fdf4" stroke="#16a34a" strokeWidth={2} />
+              {isClosed && activePoints.length >= 3 && (
+                <polygon points={polyPts(activePoints)} fill="#f0fdf4" stroke="#16a34a" strokeWidth={2} />
               )}
-              {!closed && points.length >= 2 && (
-                <polyline points={polyPoints} fill="none" stroke="#14532d" strokeWidth={2} />
+              {!isClosed && activePoints.length >= 2 && (
+                <polyline points={polyPts(activePoints)} fill="none" stroke="#14532d" strokeWidth={2} />
               )}
-              {closed && points.map((p, i) => {
-                const b = points[(i + 1) % points.length];
+              {inputMode === 'type' && !isClosed && walls.length >= 2 && (
+                <line
+                  x1={toSVG(tip.x)} y1={toSVG(tip.y)}
+                  x2={toSVG(START.x)} y2={toSVG(START.y)}
+                  stroke="#86efac" strokeWidth={1.5} strokeDasharray="5 4"
+                />
+              )}
+              {isClosed && activePoints.map((p, i) => {
+                const b = activePoints[(i + 1) % activePoints.length];
                 const mx = (toSVG(p.x) + toSVG(b.x)) / 2;
                 const my = (toSVG(p.y) + toSVG(b.y)) / 2;
                 return (
@@ -487,10 +470,11 @@ export default function FloorPlanTool() {
                   </text>
                 );
               })}
-              {points.map((p, i) => (
-                <circle key={i} cx={toSVG(p.x)} cy={toSVG(p.y)} r={i === 0 ? 6 : 4} fill={i === 0 ? '#16a34a' : '#14532d'} stroke="white" strokeWidth={2} />
+              {activePoints.map((p, i) => (
+                <circle key={i} cx={toSVG(p.x)} cy={toSVG(p.y)} r={i === 0 ? 6 : 4}
+                  fill={i === 0 ? '#16a34a' : '#14532d'} stroke="white" strokeWidth={2} />
               ))}
-              {!closed && hoverPoint && inputMode === 'draw' && (
+              {inputMode === 'draw' && !closed && hoverPoint && (
                 <circle cx={toSVG(hoverPoint.x)} cy={toSVG(hoverPoint.y)} r={3} fill="none" stroke="#86efac" strokeWidth={1.5} />
               )}
               {[0, 5, 10, 15, 20].map(m => (
@@ -502,121 +486,97 @@ export default function FloorPlanTool() {
             </svg>
           </div>
 
-          {inputMode === 'type' && !closed && (
-            <div className="shrink-0 p-3 space-y-3" style={{ borderTop: '2px solid #f0fdf4', background: '#fafff8' }}>
-
-              <div>
-                <div className="text-xs font-black uppercase tracking-widest mb-1.5" style={{ color: '#94a3b8' }}>QUICK RECTANGLE</div>
-                <div className="flex gap-2 items-center">
-                  <input
-                    type="number" step="0.5" min="0.5" placeholder="Width (m)"
-                    value={rectW} onChange={e => setRectW(e.target.value)}
-                    className="rounded-lg px-2 py-1.5 text-xs font-mono w-24 focus:outline-none"
-                    style={{ border: '2px solid #dcfce7' }}
-                  />
-                  <span className="text-xs font-black" style={{ color: '#86efac' }}>×</span>
-                  <input
-                    type="number" step="0.5" min="0.5" placeholder="Depth (m)"
-                    value={rectD} onChange={e => setRectD(e.target.value)}
-                    className="rounded-lg px-2 py-1.5 text-xs font-mono w-24 focus:outline-none"
-                    style={{ border: '2px solid #dcfce7' }}
-                  />
-                  <button
-                    onClick={addRectangle}
-                    disabled={!rectW || !rectD}
-                    className="px-3 py-1.5 rounded-lg text-xs font-black disabled:opacity-40"
-                    style={{ background: '#14532d', color: 'white' }}
-                  >
-                    Create
-                  </button>
-                </div>
+          {inputMode === 'type' && !isClosed && (
+            <div className="shrink-0 p-3" style={{ borderTop: '2px solid #f0fdf4', background: '#fafff8' }}>
+              <div className="text-xs font-black uppercase tracking-widest mb-2" style={{ color: '#94a3b8' }}>
+                {walls.length === 0 ? 'WALL 1 — starting at (5, 5)' : `WALL ${walls.length + 1} — from (${tip.x.toFixed(1)}, ${tip.y.toFixed(1)})`}
               </div>
-
-              <div>
-                <div className="text-xs font-black uppercase tracking-widest mb-1.5" style={{ color: '#94a3b8' }}>
-                  ADD WALL — {points.length > 0 ? `from (${points[points.length - 1].x}, ${points[points.length - 1].y})` : 'start point'}
-                </div>
-                <div className="flex gap-2 items-center flex-wrap">
-                  <div className="flex rounded-lg overflow-hidden" style={{ border: '2px solid #dcfce7' }}>
-                    {(['N', 'S', 'E', 'W'] as const).map(d => (
-                      <button
-                        key={d}
-                        onClick={() => setOffsetDir(d)}
-                        className="w-8 h-8 text-xs font-black"
-                        style={{
-                          background: offsetDir === d ? '#14532d' : 'white',
-                          color: offsetDir === d ? 'white' : '#6b7280',
-                        }}
-                      >
-                        {d}
-                      </button>
-                    ))}
+              <div className="flex gap-2 items-center">
+                <div className="grid grid-cols-3 gap-0.5" style={{ width: 72 }}>
+                  <div />
+                  <button onClick={() => { setDir('N'); lenRef.current?.focus(); }}
+                    className="h-8 rounded text-xs font-black transition-all"
+                    style={{ background: dir === 'N' ? '#14532d' : '#f0fdf4', color: dir === 'N' ? 'white' : '#6b7280' }}>↑</button>
+                  <div />
+                  <button onClick={() => { setDir('W'); lenRef.current?.focus(); }}
+                    className="h-8 rounded text-xs font-black transition-all"
+                    style={{ background: dir === 'W' ? '#14532d' : '#f0fdf4', color: dir === 'W' ? 'white' : '#6b7280' }}>←</button>
+                  <div className="h-8 rounded flex items-center justify-center text-xs font-black" style={{ background: '#e2e8f0', color: '#94a3b8' }}>
+                    {dirArrow[dir]}
                   </div>
-                  <input
-                    type="number" step="0.5" min="0.5" placeholder="Length (m)"
-                    value={offsetLen} onChange={e => setOffsetLen(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && addOffsetPoint()}
-                    className="rounded-lg px-2 py-1.5 text-xs font-mono w-28 focus:outline-none"
-                    style={{ border: '2px solid #dcfce7' }}
-                  />
-                  <button
-                    onClick={addOffsetPoint}
-                    disabled={!offsetLen}
-                    className="px-3 py-1.5 rounded-lg text-xs font-black disabled:opacity-40"
-                    style={{ background: '#14532d', color: 'white' }}
-                  >
-                    Add wall
-                  </button>
+                  <button onClick={() => { setDir('E'); lenRef.current?.focus(); }}
+                    className="h-8 rounded text-xs font-black transition-all"
+                    style={{ background: dir === 'E' ? '#14532d' : '#f0fdf4', color: dir === 'E' ? 'white' : '#6b7280' }}>→</button>
+                  <div />
+                  <button onClick={() => { setDir('S'); lenRef.current?.focus(); }}
+                    className="h-8 rounded text-xs font-black transition-all"
+                    style={{ background: dir === 'S' ? '#14532d' : '#f0fdf4', color: dir === 'S' ? 'white' : '#6b7280' }}>↓</button>
+                  <div />
+                </div>
+                <div className="flex-1 flex flex-col gap-1">
+                  <div className="text-xs font-bold" style={{ color: '#14532d' }}>{dirArrow[dir]} {dirLabel[dir]}</div>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      ref={lenRef}
+                      type="number" step="0.1" min="0.1"
+                      placeholder="Length in metres"
+                      value={lenInput}
+                      onChange={e => setLenInput(e.target.value)}
+                      onKeyDown={handleLenKeyDown}
+                      autoFocus={inputMode === 'type'}
+                      className="flex-1 rounded-lg px-3 py-2 text-sm font-mono font-bold focus:outline-none"
+                      style={{ border: '2px solid #16a34a' }}
+                    />
+                    <span className="text-sm font-black" style={{ color: '#86efac' }}>m</span>
+                    <button
+                      onClick={addWall}
+                      disabled={!lenInput}
+                      className="px-4 py-2 rounded-lg text-sm font-black disabled:opacity-40"
+                      style={{ background: '#14532d', color: 'white' }}
+                    >
+                      Enter
+                    </button>
+                  </div>
+                  <div className="text-xs" style={{ color: '#94a3b8' }}>
+                    Arrow keys · click compass · Tab to cycle direction
+                  </div>
                 </div>
               </div>
-
-              <div>
-                <div className="text-xs font-black uppercase tracking-widest mb-1.5" style={{ color: '#94a3b8' }}>OR ADD POINT BY COORDINATE</div>
-                <div className="flex gap-2 items-center">
-                  <input
-                    type="number" step="0.5" placeholder="X (m)"
-                    value={typeX} onChange={e => setTypeX(e.target.value)}
-                    className="rounded-lg px-2 py-1.5 text-xs font-mono w-20 focus:outline-none"
-                    style={{ border: '2px solid #dcfce7' }}
-                  />
-                  <input
-                    type="number" step="0.5" placeholder="Y (m)"
-                    value={typeY} onChange={e => setTypeY(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && addAbsolutePoint()}
-                    className="rounded-lg px-2 py-1.5 text-xs font-mono w-20 focus:outline-none"
-                    style={{ border: '2px solid #dcfce7' }}
-                  />
-                  <button
-                    onClick={addAbsolutePoint}
-                    disabled={!typeX || !typeY}
-                    className="px-3 py-1.5 rounded-lg text-xs font-black disabled:opacity-40"
-                    style={{ background: '#14532d', color: 'white' }}
-                  >
-                    Add point
-                  </button>
-                </div>
-              </div>
-
-              {points.length >= 3 && (
-                <button onClick={() => setClosed(true)} className="w-full py-2 rounded-lg text-xs font-black" style={{ background: '#f0fdf4', color: '#16a34a', border: '2px solid #86efac' }}>
-                  ✓ Close polygon & calculate
+              {canClose && (
+                <button
+                  onClick={() => setClosed(true)}
+                  className="mt-2 w-full py-2 rounded-lg text-sm font-black"
+                  style={{ background: '#14532d', color: 'white' }}
+                >
+                  ✓ Close shape — back to start ({distToStart.toFixed(1)}m remaining)
                 </button>
               )}
             </div>
           )}
+
+          {inputMode === 'type' && walls.length > 0 && (
+            <div className="shrink-0 overflow-y-auto" style={{ maxHeight: 140, borderTop: '1px solid #f0fdf4', background: 'white' }}>
+              <div className="px-3 pt-2 pb-1 text-xs font-black uppercase tracking-widest" style={{ color: '#94a3b8' }}>WALLS ENTERED</div>
+              <div className="px-3 pb-2 space-y-1">
+                {walls.map((w, i) => (
+                  <WallHistoryRow key={i} index={i} dir={w.dir} len={w.len} onDelete={() => deleteWall(i)} />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
-        <ThreeViewer points={closed ? points : []} storeyHeight={storeyHeight} roofType={roofType} />
+        <ThreeViewer points={isClosed ? activePoints : []} storeyHeight={storeyHeight} roofType={roofType} />
 
         <div className="rounded-2xl flex flex-col overflow-hidden" style={{ background: 'white', border: '2px solid #dcfce7' }}>
           <div className="px-4 py-3 shrink-0" style={{ borderBottom: '2px solid #f0fdf4', background: '#f0fdf4' }}>
             <span className="text-xs font-black uppercase tracking-widest" style={{ color: '#14532d' }}>SAP TAKEOFF</span>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {!closed ? (
+            {!isClosed ? (
               <div className="text-center py-8">
                 <div className="text-3xl mb-2">📐</div>
-                <div className="text-xs font-bold" style={{ color: '#86efac' }}>Close the polygon to see areas</div>
+                <div className="text-xs font-bold" style={{ color: '#86efac' }}>Close the shape to see areas</div>
               </div>
             ) : (
               <>
@@ -626,8 +586,8 @@ export default function FloorPlanTool() {
                 <div style={{ borderTop: '1px dashed #dcfce7', paddingTop: 12 }}>
                   <div className="text-xs font-black uppercase tracking-widest mb-3" style={{ color: '#94a3b8' }}>EXTERNAL WALLS</div>
                   <TakeoffRow label="Total wall area" value={totalWallArea} unit="m²" />
-                  {(Object.entries(wallsByOrientation) as [Orientation, number][]).map(([dir, area]) => (
-                    area > 0 && <TakeoffRow key={dir} label={`↑ ${dir}`} value={area} unit="m²" indent />
+                  {(Object.entries(wallsByOrientation) as [Orientation, number][]).map(([d, area]) => (
+                    area > 0 && <TakeoffRow key={d} label={`↑ ${d}`} value={area} unit="m²" indent />
                   ))}
                 </div>
                 <div style={{ borderTop: '1px dashed #dcfce7', paddingTop: 12 }}>
