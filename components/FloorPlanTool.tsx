@@ -5,6 +5,7 @@ import * as THREE from 'three';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Point { x: number; y: number; }
+interface Opening { id: number; type: 'window' | 'door'; area: number; }
 
 type Orientation = 'North' | 'East' | 'South' | 'West';
 type Dir = 'N' | 'S' | 'E' | 'W';
@@ -71,6 +72,15 @@ function polygonArea(pts: Point[]): number {
     area -= pts[j].x * pts[i].y;
   }
   return Math.abs(area) / 2;
+}
+
+function signedArea2(pts: Point[]): number {
+  let a = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const j = (i + 1) % pts.length;
+    a += pts[i].x * pts[j].y - pts[j].x * pts[i].y;
+  }
+  return a; // positive = CW in SVG coords (y-down)
 }
 
 function wallLength(a: Point, b: Point): number {
@@ -521,6 +531,14 @@ export default function FloorPlanTool() {
   // 3D camera reset trigger
   const [resetCameraKey, setResetCameraKey] = useState(0);
 
+  // Wall openings
+  const [wallOpenings, setWallOpenings] = useState<Record<number, Opening[]>>({});
+  const [expandedWall, setExpandedWall] = useState<number | null>(null);
+  const openingIdRef = useRef(1);
+  // Opening form state
+  const [newOpeningType, setNewOpeningType] = useState<'window' | 'door'>('window');
+  const [newOpeningArea, setNewOpeningArea] = useState('');
+
   // 2D cursor position (metres)
   const [cursorPos, setCursorPos] = useState<Point | null>(null);
 
@@ -566,10 +584,20 @@ export default function FloorPlanTool() {
     ? activePoints.reduce((sum, p, i) => sum + wallLength(p, activePoints[(i + 1) % activePoints.length]), 0)
     : 0;
 
+  // Net area per wall (gross minus openings)
+  const wallNetArea = (seg: WallSegInfo) => {
+    const openings = wallOpenings[seg.i] ?? [];
+    return Math.max(0, seg.area - openings.reduce((s, o) => s + o.area, 0));
+  };
+  const totalWindowArea = wallSegs.filter(s => s.type === 'external').reduce((sum, s) =>
+    sum + (wallOpenings[s.i] ?? []).filter(o => o.type === 'window').reduce((a, o) => a + o.area, 0), 0);
+  const totalDoorArea = wallSegs.filter(s => s.type === 'external').reduce((sum, s) =>
+    sum + (wallOpenings[s.i] ?? []).filter(o => o.type === 'door').reduce((a, o) => a + o.area, 0), 0);
+
   const extWallsByOrientation: Record<Orientation, number> = { North: 0, East: 0, South: 0, West: 0 };
   let partyWallTotal = 0;
   for (const seg of wallSegs) {
-    if (seg.type === 'external') extWallsByOrientation[seg.orientation] += seg.area;
+    if (seg.type === 'external') extWallsByOrientation[seg.orientation] += wallNetArea(seg);
     if (seg.type === 'party') partyWallTotal += seg.area;
   }
   const totalExtWallArea = Object.values(extWallsByOrientation).reduce((a, b) => a + b, 0);
@@ -577,8 +605,13 @@ export default function FloorPlanTool() {
   // ── Draw mode handlers ──────────────────────────────────────────────────────
   const getSVGPoint = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
     const rect = svgRef.current!.getBoundingClientRect();
-    return { x: snap(toM(e.clientX - rect.left)), y: snap(toM(e.clientY - rect.top)) };
-  }, []);
+    const raw = { x: snap(toM(e.clientX - rect.left)), y: snap(toM(e.clientY - rect.top)) };
+    // Snap to existing vertex
+    for (const ep of points) {
+      if (Math.sqrt((raw.x - ep.x)**2 + (raw.y - ep.y)**2) < 0.4) return ep;
+    }
+    return raw;
+  }, [points]);
 
   const handleClick = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
     // ── Roof layer handling ──
@@ -721,6 +754,7 @@ export default function FloorPlanTool() {
     setClosed(false);
     setWallTypes([]);
     setLenInput('');
+    setWallOpenings({});
   };
 
   // ── Grid lines ─────────────────────────────────────────────────────────────
@@ -1117,6 +1151,37 @@ export default function FloorPlanTool() {
                     />
                   ))}
 
+                  {/* Dimension strings */}
+                  {closed && activePoints.length >= 3 && (() => {
+                    const sa2 = signedArea2(activePoints);
+                    const s = sa2 >= 0 ? 1 : -1;
+                    const offset = 22;
+                    return wallSegs.map(seg => {
+                      const ax = toSVG(seg.a.x), ay = toSVG(seg.a.y);
+                      const bx = toSVG(seg.b.x), by = toSVG(seg.b.y);
+                      const len = Math.sqrt((bx - ax)**2 + (by - ay)**2);
+                      if (len < 1) return null;
+                      const onx = s * (by - ay) / len;
+                      const ony = s * -(bx - ax) / len;
+                      const ax2 = ax + onx * offset, ay2 = ay + ony * offset;
+                      const bx2 = bx + onx * offset, by2 = by + ony * offset;
+                      const mx = (ax2 + bx2) / 2, my = (ay2 + by2) / 2;
+                      // perpendicular tick direction
+                      const tx = (bx2 - ax2) / len, ty = (by2 - ay2) / len;
+                      return (
+                        <g key={`dim-${seg.i}`}>
+                          <line x1={ax2} y1={ay2} x2={bx2} y2={by2} stroke="#cbd5e1" strokeWidth={1} />
+                          <line x1={ax2 - ty*4} y1={ay2 + tx*4} x2={ax2 + ty*4} y2={ay2 - tx*4} stroke="#cbd5e1" strokeWidth={1} />
+                          <line x1={bx2 - ty*4} y1={by2 + tx*4} x2={bx2 + ty*4} y2={by2 - tx*4} stroke="#cbd5e1" strokeWidth={1} />
+                          <text x={mx} y={my} textAnchor="middle" dominantBaseline="middle" fontSize={8} fill="#94a3b8"
+                            transform={`rotate(${Math.atan2(by2 - ay2, bx2 - ax2) * 180 / Math.PI}, ${mx}, ${my})`}>
+                            {seg.len.toFixed(2)}m
+                          </text>
+                        </g>
+                      );
+                    });
+                  })()}
+
                   {/* Draw mode preview */}
                   {inputMode === 'draw' && !closed && points.length > 0 && hoverPoint && (
                     <polyline points={previewPoints} fill="none" stroke="#86efac" strokeWidth={1.5} strokeDasharray="4 3" />
@@ -1193,6 +1258,13 @@ export default function FloorPlanTool() {
                   {/* Draw mode hover point */}
                   {inputMode === 'draw' && !closed && hoverPoint && (
                     <circle cx={toSVG(hoverPoint.x)} cy={toSVG(hoverPoint.y)} r={3} fill="none" stroke="#86efac" strokeWidth={1.5} />
+                  )}
+
+                  {/* Close-polygon snap indicator */}
+                  {inputMode === 'draw' && !closed && points.length >= 3 && hoverPoint && activePoints.length > 0 &&
+                    Math.sqrt((hoverPoint.x - activePoints[0].x)**2 + (hoverPoint.y - activePoints[0].y)**2) < 0.6 && (
+                    <circle cx={toSVG(activePoints[0].x)} cy={toSVG(activePoints[0].y)} r={10}
+                      fill="none" stroke="#16a34a" strokeWidth={2} opacity={0.7} strokeDasharray="3 2" />
                   )}
                 </>
               )}
@@ -1483,9 +1555,23 @@ export default function FloorPlanTool() {
                     <span className="font-mono font-bold" style={{ color: '#334155' }}>{storeyHeight.toFixed(2)} m</span>
                   </div>
                   <div className="flex justify-between pt-1" style={{ borderTop: '1px solid #f1f5f9' }}>
-                    <span style={{ color: '#94a3b8' }}>Area</span>
+                    <span style={{ color: '#94a3b8' }}>Gross Area</span>
                     <span className="font-mono font-black text-sm" style={{ color: WALL_COLOR[seg.type] }}>{seg.area.toFixed(2)} m²</span>
                   </div>
+                  {(wallOpenings[seg.i] ?? []).length > 0 && (
+                    <>
+                      <div className="flex justify-between">
+                        <span style={{ color: '#94a3b8' }}>Openings</span>
+                        <span className="font-mono font-bold" style={{ color: '#334155' }}>
+                          {(wallOpenings[seg.i] ?? []).length} ({(wallOpenings[seg.i] ?? []).reduce((s, o) => s + o.area, 0).toFixed(2)} m²)
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span style={{ color: '#94a3b8' }}>Net Area</span>
+                        <span className="font-mono font-black text-sm" style={{ color: WALL_COLOR[seg.type] }}>{wallNetArea(seg).toFixed(2)} m²</span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             );
@@ -1494,8 +1580,31 @@ export default function FloorPlanTool() {
 
         {/* SAP Takeoff */}
         <div className="rounded-2xl flex flex-col overflow-hidden" style={{ background: 'white', border: '2px solid #dcfce7' }}>
-          <div className="px-4 py-3 shrink-0" style={{ borderBottom: '2px solid #f0fdf4', background: '#f0fdf4' }}>
+          <div className="px-4 py-3 shrink-0 flex items-center justify-between" style={{ borderBottom: '2px solid #f0fdf4', background: '#f0fdf4' }}>
             <span className="text-xs font-black uppercase tracking-widest" style={{ color: '#14532d' }}>SAP TAKEOFF</span>
+            {closed && (
+              <button
+                onClick={() => {
+                  const lines = ['SAP Surface Area Schedule'];
+                  lines.push(`Floor Area:\t${floorArea.toFixed(1)} m²`);
+                  lines.push(`Perimeter:\t${perimeter.toFixed(1)} m`);
+                  for (const seg of wallSegs) {
+                    const net = wallNetArea(seg);
+                    const openings = wallOpenings[seg.i] ?? [];
+                    lines.push(`Wall W${seg.i + 1}\t${seg.type}\t${seg.orientation}\t${seg.len.toFixed(2)}m\t${seg.area.toFixed(1)}m²${openings.length > 0 ? `\tnet ${net.toFixed(1)}m²` : ''}`);
+                  }
+                  lines.push(`Total External Walls:\t${totalExtWallArea.toFixed(1)} m²`);
+                  lines.push(`Total Windows:\t${totalWindowArea.toFixed(1)} m²`);
+                  lines.push(`Total Doors:\t${totalDoorArea.toFixed(1)} m²`);
+                  lines.push(`Roof:\t${(roofZones.length > 0 ? totalRoofActualArea : effectiveRoofArea).toFixed(1)} m²`);
+                  navigator.clipboard.writeText(lines.join('\n')).catch(() => {});
+                }}
+                className="px-2 py-1 rounded text-xs font-black"
+                style={{ background: '#dcfce7', color: '#14532d', border: '1px solid #86efac' }}
+              >
+                Copy
+              </button>
+            )}
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {!closed ? (
@@ -1554,54 +1663,120 @@ export default function FloorPlanTool() {
                   <div className="text-xs font-black uppercase tracking-widest mb-2" style={{ color: '#94a3b8' }}>ALL WALLS</div>
                   <div className="text-xs mb-1" style={{ color: '#94a3b8' }}>Click type badge to change · Click row to highlight in 3D</div>
                   <div className="space-y-1">
-                    {wallSegs.map(seg => (
-                      <div
-                        key={seg.i}
-                        className="flex items-center gap-1 text-xs rounded-lg px-1 py-0.5 cursor-pointer transition-all"
-                        style={{
-                          background: selectedWallIdx === seg.i ? (seg.type === 'external' ? '#dcfce7' : seg.type === 'party' ? '#fef3c7' : '#f1f5f9') : 'transparent',
-                          outline: selectedWallIdx === seg.i ? `2px solid ${WALL_COLOR[seg.type]}` : 'none',
-                        }}
-                        onClick={() => setSelectedWallIdx(prev => prev === seg.i ? null : seg.i)}
-                      >
-                        <span className="font-black w-6 shrink-0" style={{ color: '#94a3b8' }}>W{seg.i + 1}</span>
-                        <span className="w-4 shrink-0" style={{ color: WALL_COLOR[seg.type] }}>{ORIENT_ARROW[seg.orientation]}</span>
-                        <span className="font-semibold w-10 shrink-0" style={{ color: '#475569' }}>{seg.orientation.slice(0, 1)}</span>
-                        <span className="font-mono w-14 shrink-0" style={{ color: '#334155' }}>{seg.len.toFixed(2)}m</span>
-                        <span className="font-mono w-14 shrink-0" style={{ color: '#334155' }}>{seg.area.toFixed(1)}m²</span>
-                        <span
-                          className="text-xs px-1 py-0.5 rounded font-black uppercase shrink-0 cursor-pointer hover:opacity-75"
-                          title="Click to change type"
-                          style={{
-                            background: seg.type === 'external' ? '#dcfce7' : seg.type === 'party' ? '#fef3c7' : '#f1f5f9',
-                            color: WALL_COLOR[seg.type],
-                            fontSize: 9,
-                          }}
-                          onClick={e => {
-                            e.stopPropagation();
-                            setWallTypes(prev => {
-                              const next = [...prev];
-                              next[seg.i] = WALL_CYCLE[(WALL_CYCLE.indexOf(seg.type) + 1) % WALL_CYCLE.length];
-                              return next;
-                            });
-                          }}
-                        >
-                          {seg.type === 'external' ? 'Ext ▾' : seg.type === 'party' ? 'Pty ▾' : 'Int ▾'}
-                        </span>
-                      </div>
-                    ))}
+                    {wallSegs.map(seg => {
+                      const openings = wallOpenings[seg.i] ?? [];
+                      const netArea = wallNetArea(seg);
+                      const isExpanded = expandedWall === seg.i;
+                      return (
+                        <div key={seg.i}>
+                          <div
+                            className="flex items-center gap-1 text-xs rounded-lg px-1 py-0.5 cursor-pointer transition-all"
+                            style={{
+                              background: selectedWallIdx === seg.i ? (seg.type === 'external' ? '#dcfce7' : seg.type === 'party' ? '#fef3c7' : '#f1f5f9') : 'transparent',
+                              outline: selectedWallIdx === seg.i ? `2px solid ${WALL_COLOR[seg.type]}` : 'none',
+                            }}
+                            onClick={() => setSelectedWallIdx(prev => prev === seg.i ? null : seg.i)}
+                          >
+                            <button
+                              className="shrink-0 text-xs w-5 text-center"
+                              style={{ color: '#94a3b8' }}
+                              onClick={e => { e.stopPropagation(); setExpandedWall(prev => prev === seg.i ? null : seg.i); }}
+                              title="Add openings"
+                            >{isExpanded ? '▾' : '▸'}</button>
+                            <span className="font-black w-5 shrink-0" style={{ color: '#94a3b8' }}>W{seg.i + 1}</span>
+                            <span className="w-2 h-2 rounded-full shrink-0 mr-0.5" style={{ background: WALL_COLOR[seg.type] }} />
+                            <span className="w-4 shrink-0" style={{ color: WALL_COLOR[seg.type] }}>{ORIENT_ARROW[seg.orientation]}</span>
+                            <span className="font-mono w-12 shrink-0" style={{ color: '#334155' }}>{seg.len.toFixed(2)}m</span>
+                            <span className="font-mono flex-1 shrink-0" style={{ color: openings.length > 0 ? '#94a3b8' : '#334155' }}>
+                              {openings.length > 0 ? `${seg.area.toFixed(1)}→${netArea.toFixed(1)}m²` : `${seg.area.toFixed(1)}m²`}
+                            </span>
+                            <span
+                              className="text-xs px-1 py-0.5 rounded font-black uppercase shrink-0 cursor-pointer hover:opacity-75"
+                              title="Click to change type"
+                              style={{
+                                background: seg.type === 'external' ? '#dcfce7' : seg.type === 'party' ? '#fef3c7' : '#f1f5f9',
+                                color: WALL_COLOR[seg.type],
+                                fontSize: 9,
+                              }}
+                              onClick={e => {
+                                e.stopPropagation();
+                                setWallTypes(prev => {
+                                  const next = [...prev];
+                                  next[seg.i] = WALL_CYCLE[(WALL_CYCLE.indexOf(seg.type) + 1) % WALL_CYCLE.length];
+                                  return next;
+                                });
+                              }}
+                            >
+                              {seg.type === 'external' ? 'Ext ▾' : seg.type === 'party' ? 'Pty ▾' : 'Int ▾'}
+                            </span>
+                          </div>
+                          {isExpanded && (
+                            <div className="ml-6 mb-1 p-1.5 rounded-lg space-y-1" style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                              {openings.length > 0 && (
+                                <div className="flex flex-wrap gap-1">
+                                  {openings.map(op => (
+                                    <span key={op.id} className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-semibold"
+                                      style={{ background: op.type === 'window' ? '#dbeafe' : '#fef9c3', color: op.type === 'window' ? '#1d4ed8' : '#854d0e' }}>
+                                      {op.type === 'window' ? 'Win' : 'Door'} {op.area.toFixed(1)}m²
+                                      <button onClick={() => setWallOpenings(prev => ({ ...prev, [seg.i]: (prev[seg.i] ?? []).filter(o => o.id !== op.id) }))}
+                                        className="ml-0.5" style={{ color: '#94a3b8' }}>✕</button>
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              <div className="flex items-center gap-1">
+                                <button
+                                  className="px-1.5 py-0.5 rounded text-xs font-black"
+                                  style={{ background: newOpeningType === 'window' ? '#dbeafe' : '#fef9c3', color: newOpeningType === 'window' ? '#1d4ed8' : '#854d0e', minWidth: 38 }}
+                                  onClick={() => setNewOpeningType(t => t === 'window' ? 'door' : 'window')}
+                                >{newOpeningType === 'window' ? 'Win' : 'Door'}</button>
+                                <input
+                                  type="number" step="0.1" min="0.01" placeholder="m²"
+                                  value={newOpeningArea}
+                                  onChange={e => setNewOpeningArea(e.target.value)}
+                                  className="rounded px-1.5 py-0.5 text-xs font-mono font-semibold w-14 focus:outline-none"
+                                  style={{ border: '1px solid #cbd5e1' }}
+                                  onKeyDown={e => {
+                                    if (e.key === 'Enter') {
+                                      const a = parseFloat(newOpeningArea);
+                                      if (a > 0) {
+                                        setWallOpenings(prev => ({ ...prev, [seg.i]: [...(prev[seg.i] ?? []), { id: openingIdRef.current++, type: newOpeningType, area: a }] }));
+                                        setNewOpeningArea('');
+                                      }
+                                    }
+                                  }}
+                                />
+                                <button
+                                  className="px-1.5 py-0.5 rounded text-xs font-black"
+                                  style={{ background: '#14532d', color: 'white' }}
+                                  onClick={() => {
+                                    const a = parseFloat(newOpeningArea);
+                                    if (a > 0) {
+                                      setWallOpenings(prev => ({ ...prev, [seg.i]: [...(prev[seg.i] ?? []), { id: openingIdRef.current++, type: newOpeningType, area: a }] }));
+                                      setNewOpeningArea('');
+                                    }
+                                  }}
+                                >Add</button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
                 {/* Aggregated external by orientation */}
                 <div style={{ borderTop: '1px dashed #dcfce7', paddingTop: 12 }}>
                   <div className="text-xs font-black uppercase tracking-widest mb-2" style={{ color: '#94a3b8' }}>EXTERNAL WALLS</div>
-                  <TakeoffRow label="Total external wall area" value={totalExtWallArea} unit="m²" />
+                  <TakeoffRow label="Total external wall area (net)" value={totalExtWallArea} unit="m²" />
                   {(Object.entries(extWallsByOrientation) as [Orientation, number][]).map(([d, area]) =>
                     area > 0 && (
                       <TakeoffRow key={d} label={`${ORIENT_ARROW[d]} ${d}`} value={area} unit="m²" indent />
                     )
                   )}
+                  {totalWindowArea > 0 && <TakeoffRow label="Total Windows" value={totalWindowArea} unit="m²" indent />}
+                  {totalDoorArea > 0 && <TakeoffRow label="Total Doors" value={totalDoorArea} unit="m²" indent />}
                   {partyWallTotal > 0 && (
                     <TakeoffRow label="Party wall area" value={partyWallTotal} unit="m²" party />
                   )}
