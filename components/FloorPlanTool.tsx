@@ -275,22 +275,30 @@ function ThreeViewer({ points, storeyHeight, storeyBase, roofType, wallSegs, sel
     scene.add(floorMesh);
 
     // Individual wall meshes — one per segment, coloured by type
-    // Outward normal of edge a→b for a CW-SVG (CCW-3D) polygon:
-    //   outNX = (b.y - a.y) / len, outNZ = (b.x - a.x) / len
-    // Shift centre INWARD by half-thickness so outer face sits on polygon edge → roof covers top flush.
     const wallMeshData: { mesh: THREE.Mesh; idx: number }[] = [];
     const WALL_THICKNESS = 0.25;
+
+    // Detect polygon winding from signed shoelace area (SVG coords).
+    // CW on screen → positive → formula gives outward normal → shift inward = subtract.
+    // CCW on screen → negative → formula gives inward normal → shift inward = add.
+    let signedArea2 = 0;
+    for (let i = 0; i < points.length; i++) {
+      const j = (i + 1) % points.length;
+      signedArea2 += points[i].x * points[j].y - points[j].x * points[i].y;
+    }
+    const windingSign = signedArea2 >= 0 ? -1 : 1;
+
     for (const seg of wallSegs) {
       const segLen = seg.len;
       const dx = seg.b.x - seg.a.x;
       const dy = seg.b.y - seg.a.y;
       const angle = Math.atan2(dy, dx);
-      // outward normal in 3D XZ plane
+      // Normal from the edge direction formula; direction depends on winding (above)
       const outNX = (seg.b.y - seg.a.y) / segLen;
       const outNZ = (seg.b.x - seg.a.x) / segLen;
-      // centre shifted inward by half-thickness so outer wall face = polygon edge
-      const midX = (seg.a.x + seg.b.x) / 2 - cx - outNX * WALL_THICKNESS / 2;
-      const midZ = -((seg.a.y + seg.b.y) / 2 - cy) - outNZ * WALL_THICKNESS / 2;
+      // Shift box centre inward by half-thickness so outer face sits on polygon edge
+      const midX = (seg.a.x + seg.b.x) / 2 - cx + windingSign * outNX * WALL_THICKNESS / 2;
+      const midZ = -((seg.a.y + seg.b.y) / 2 - cy) + windingSign * outNZ * WALL_THICKNESS / 2;
 
       const geo = new THREE.BoxGeometry(segLen, storeyHeight, WALL_THICKNESS);
       const isSelected = seg.i === selectedWallIdx;
