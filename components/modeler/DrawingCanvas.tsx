@@ -1,21 +1,23 @@
 'use client'
-import { useRef, useEffect, useCallback, useState } from 'react'
-import { useModelerStore, Point2D, Wall } from '@/lib/modelerStore'
+import { useRef, useEffect, useCallback, useState, useRef as useRefAlias } from 'react'
+import { useModelerStore, Point2D } from '@/lib/modelerStore'
+import { ZoomIn, ZoomOut, Maximize2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight } from 'lucide-react'
 
-const CANVAS_PX = 600      // canvas display pixels (square)
-const WORLD_M = 20         // world metres shown across canvas
+const CANVAS_PX = 800
 
-function worldToCanvas(p: Point2D, offset: Point2D, scale: number) {
+// ─── View helpers ─────────────────────────────────────────────────────────────
+
+function worldToCanvas(p: Point2D, pan: Point2D, zoom: number): { x: number; y: number } {
   return {
-    x: (p.x - offset.x) * scale,
-    y: CANVAS_PX - (p.y - offset.y) * scale,
+    x: (p.x - pan.x) * zoom,
+    y: CANVAS_PX - (p.y - pan.y) * zoom,
   }
 }
 
-function canvasToWorld(cx: number, cy: number, offset: Point2D, scale: number): Point2D {
+function canvasToWorld(cx: number, cy: number, pan: Point2D, zoom: number): Point2D {
   return {
-    x: cx / scale + offset.x,
-    y: (CANVAS_PX - cy) / scale + offset.y,
+    x: cx / zoom + pan.x,
+    y: (CANVAS_PX - cy) / zoom + pan.y,
   }
 }
 
@@ -34,195 +36,329 @@ function snapToAngle(start: Point2D, end: Point2D): Point2D {
   const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI
   const snapped = Math.round(angleDeg / 45) * 45
   const rad = (snapped * Math.PI) / 180
-  return {
-    x: start.x + len * Math.cos(rad),
-    y: start.y + len * Math.sin(rad),
-  }
+  return { x: start.x + len * Math.cos(rad), y: start.y + len * Math.sin(rad) }
 }
 
-interface Props {
-  className?: string
+// Arrow key → direction vector (in world space, Y-up)
+const ARROW_DIR: Record<string, Point2D> = {
+  ArrowRight: { x: 1, y: 0 },
+  ArrowLeft:  { x: -1, y: 0 },
+  ArrowUp:    { x: 0, y: 1 },
+  ArrowDown:  { x: 0, y: -1 },
 }
+
+interface Props { className?: string }
 
 export default function DrawingCanvas({ className }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const lengthInputRef = useRef<HTMLInputElement>(null)
+
   const { stories, activeStoryId, drawingTool, gridSizeM, addWall, clearWalls, setFootprint } =
     useModelerStore()
-
   const activeStory = stories.find((s) => s.id === activeStoryId)
 
-  // View transform: pan offset in world metres
-  const [offset] = useState<Point2D>({ x: 0, y: 0 })
-  const scale = CANVAS_PX / WORLD_M // px per metre
+  // ── View state ──────────────────────────────────────────────────────────────
+  const BASE_ZOOM = CANVAS_PX / 20           // 20m default view
+  const [zoom, setZoom] = useState(BASE_ZOOM)
+  const [pan, setPan] = useState<Point2D>({ x: 0, y: 0 })
 
-  // In-progress drawing state
+  // Middle-mouse / space+drag panning
+  const isPanning = useRef(false)
+  const panStart = useRef<{ mx: number; my: number; pan: Point2D }>({ mx: 0, my: 0, pan: { x: 0, y: 0 } })
+
+  // ── Drawing state ───────────────────────────────────────────────────────────
   const [pendingStart, setPendingStart] = useState<Point2D | null>(null)
   const [mouseWorld, setMouseWorld] = useState<Point2D>({ x: 0, y: 0 })
-  // Polygon mode accumulated points
   const [polyPoints, setPolyPoints] = useState<Point2D[]>([])
 
-  const getWorldPos = useCallback(
-    (e: React.MouseEvent<HTMLCanvasElement>) => {
-      const rect = canvasRef.current!.getBoundingClientRect()
+  // Keyboard measurement input
+  const [kbLength, setKbLength] = useState('')          // typed length (metres)
+  const [kbDir, setKbDir] = useState<Point2D | null>(null) // locked direction
+
+  // ── Helpers ──────────────────────────────────────────────────────────────────
+  const getCanvasPos = useCallback((e: MouseEvent | React.MouseEvent): { cx: number; cy: number } => {
+    const rect = canvasRef.current!.getBoundingClientRect()
+    return {
+      cx: (e.clientX - rect.left) * (CANVAS_PX / rect.width),
+      cy: (e.clientY - rect.top) * (CANVAS_PX / rect.height),
+    }
+  }, [])
+
+  const getWorldPos = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const { cx, cy } = getCanvasPos(e)
+    return snapToGrid(canvasToWorld(cx, cy, pan, zoom), gridSizeM)
+  }, [pan, zoom, gridSizeM, getCanvasPos])
+
+  // Compute the live preview end point (keyboard overrides mouse)
+  const previewEnd = useCallback((start: Point2D): Point2D => {
+    const len = parseFloat(kbLength)
+    if (kbDir && !isNaN(len) && len > 0) {
+      return { x: start.x + kbDir.x * len, y: start.y + kbDir.y * len }
+    }
+    if (kbDir && isNaN(len)) {
+      // direction locked, no length yet — extend to mouse
+      const proj = (mouseWorld.x - start.x) * kbDir.x + (mouseWorld.y - start.y) * kbDir.y
+      const projLen = Math.max(0, proj)
+      return { x: start.x + kbDir.x * projLen, y: start.y + kbDir.y * projLen }
+    }
+    return snapToAngle(start, mouseWorld)
+  }, [kbLength, kbDir, mouseWorld])
+
+  function commitWall() {
+    if (!pendingStart || !activeStoryId) return
+    const end = previewEnd(pendingStart)
+    const dx = end.x - pendingStart.x
+    const dy = end.y - pendingStart.y
+    if (Math.sqrt(dx * dx + dy * dy) < 0.05) return
+    addWall(activeStoryId, { start: pendingStart, end })
+    setPendingStart(end)
+    setKbLength('')
+    setKbDir(null)
+    lengthInputRef.current?.focus()
+  }
+
+  // ── Zoom / Pan ────────────────────────────────────────────────────────────
+
+  function applyZoom(factor: number, cx = CANVAS_PX / 2, cy = CANVAS_PX / 2) {
+    setZoom((z) => {
+      const next = Math.min(Math.max(z * factor, BASE_ZOOM * 0.2), BASE_ZOOM * 20)
+      // Zoom toward canvas point (cx,cy)
+      const worldPt = canvasToWorld(cx, cy, pan, z)
+      setPan({
+        x: worldPt.x - cx / next,
+        y: worldPt.y - (CANVAS_PX - cy) / next,
+      })
+      return next
+    })
+  }
+
+  function resetView() {
+    setZoom(BASE_ZOOM)
+    setPan({ x: 0, y: 0 })
+  }
+
+  // Wheel zoom
+  useEffect(() => {
+    const el = canvasRef.current
+    if (!el) return
+    const handler = (e: WheelEvent) => {
+      e.preventDefault()
+      const rect = el.getBoundingClientRect()
       const cx = (e.clientX - rect.left) * (CANVAS_PX / rect.width)
       const cy = (e.clientY - rect.top) * (CANVAS_PX / rect.height)
-      const raw = canvasToWorld(cx, cy, offset, scale)
-      return snapToGrid(raw, gridSizeM)
-    },
-    [offset, scale, gridSizeM]
-  )
+      const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1
+      setZoom((z) => {
+        const next = Math.min(Math.max(z * factor, BASE_ZOOM * 0.2), BASE_ZOOM * 20)
+        const worldPt = canvasToWorld(cx, cy, pan, z)
+        setPan({ x: worldPt.x - cx / next, y: worldPt.y - (CANVAS_PX - cy) / next })
+        return next
+      })
+    }
+    el.addEventListener('wheel', handler, { passive: false })
+    return () => el.removeEventListener('wheel', handler)
+  }, [pan, BASE_ZOOM])
 
-  // ── Draw ──────────────────────────────────────────────────────────────────
+  // Middle-mouse pan
+  function handleMouseDown(e: React.MouseEvent<HTMLCanvasElement>) {
+    if (e.button === 1 || (e.button === 0 && e.altKey)) {
+      e.preventDefault()
+      isPanning.current = true
+      panStart.current = { mx: e.clientX, my: e.clientY, pan: { ...pan } }
+    }
+  }
+
+  function handleMouseMovePan(e: React.MouseEvent<HTMLCanvasElement>) {
+    if (isPanning.current) {
+      const dx = (e.clientX - panStart.current.mx) * (CANVAS_PX / canvasRef.current!.getBoundingClientRect().width)
+      const dy = (e.clientY - panStart.current.my) * (CANVAS_PX / canvasRef.current!.getBoundingClientRect().height)
+      setPan({
+        x: panStart.current.pan.x - dx / zoom,
+        y: panStart.current.pan.y + dy / zoom,
+      })
+      return
+    }
+    setMouseWorld(getWorldPos(e))
+  }
+
+  function handleMouseUp(e: React.MouseEvent<HTMLCanvasElement>) {
+    if (isPanning.current) { isPanning.current = false; return }
+  }
+
+  // ── Canvas drawing ─────────────────────────────────────────────────────────
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')!
     ctx.clearRect(0, 0, CANVAS_PX, CANVAS_PX)
 
-    // Background
     ctx.fillStyle = '#1a1a2e'
     ctx.fillRect(0, 0, CANVAS_PX, CANVAS_PX)
 
-    // Grid
-    ctx.strokeStyle = '#2a2a4a'
-    ctx.lineWidth = 0.5
-    const step = gridSizeM * scale
-    for (let x = 0; x <= CANVAS_PX; x += step) {
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, CANVAS_PX); ctx.stroke()
-    }
-    for (let y = 0; y <= CANVAS_PX; y += step) {
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(CANVAS_PX, y); ctx.stroke()
+    // Minor grid
+    const step = gridSizeM * zoom
+    if (step > 4) {
+      ctx.strokeStyle = '#2a2a4a'
+      ctx.lineWidth = 0.5
+      const startX = ((-pan.x % gridSizeM) + gridSizeM) % gridSizeM * zoom
+      const startY = CANVAS_PX - (((-pan.y % gridSizeM) + gridSizeM) % gridSizeM * zoom)
+      for (let x = startX; x <= CANVAS_PX; x += step) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, CANVAS_PX); ctx.stroke()
+      }
+      for (let y = startY; y >= 0; y -= step) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(CANVAS_PX, y); ctx.stroke()
+      }
     }
 
-    // Major grid lines every 5 cells
+    // Major grid (1m)
+    const majorStep = zoom
     ctx.strokeStyle = '#3a3a5a'
     ctx.lineWidth = 1
-    const majorStep = step * (1 / gridSizeM) // every 1 metre
-    for (let x = 0; x <= CANVAS_PX; x += majorStep) {
+    const mStartX = ((-pan.x % 1) + 1) % 1 * zoom
+    const mStartY = CANVAS_PX - (((-pan.y % 1) + 1) % 1 * zoom)
+    for (let x = mStartX; x <= CANVAS_PX; x += majorStep) {
       ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, CANVAS_PX); ctx.stroke()
     }
-    for (let y = 0; y <= CANVAS_PX; y += majorStep) {
+    for (let y = mStartY; y >= 0; y -= majorStep) {
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(CANVAS_PX, y); ctx.stroke()
     }
 
-    // Draw all story walls (inactive = dim)
+    // Origin axes
+    const originCanvas = worldToCanvas({ x: 0, y: 0 }, pan, zoom)
+    ctx.strokeStyle = 'rgba(100,100,180,0.5)'
+    ctx.lineWidth = 1
+    ctx.beginPath(); ctx.moveTo(originCanvas.x, 0); ctx.lineTo(originCanvas.x, CANVAS_PX); ctx.stroke()
+    ctx.beginPath(); ctx.moveTo(0, originCanvas.y); ctx.lineTo(CANVAS_PX, originCanvas.y); ctx.stroke()
+
+    // Stories
     for (const story of stories) {
       const isActive = story.id === activeStoryId
       ctx.strokeStyle = isActive ? '#60a5fa' : '#374151'
       ctx.lineWidth = isActive ? 2.5 : 1
       for (const w of story.walls) {
-        const a = worldToCanvas(w.start, offset, scale)
-        const b = worldToCanvas(w.end, offset, scale)
+        const a = worldToCanvas(w.start, pan, zoom)
+        const b = worldToCanvas(w.end, pan, zoom)
         ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke()
-        // Endpoints
         if (isActive) {
           ctx.fillStyle = '#93c5fd'
           ctx.beginPath(); ctx.arc(a.x, a.y, 3, 0, Math.PI * 2); ctx.fill()
           ctx.beginPath(); ctx.arc(b.x, b.y, 3, 0, Math.PI * 2); ctx.fill()
+          // Wall length label
+          const dx = w.end.x - w.start.x, dy = w.end.y - w.start.y
+          const len = Math.sqrt(dx * dx + dy * dy)
+          if (len > 0.1 && zoom > BASE_ZOOM * 0.8) {
+            const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+            ctx.fillStyle = 'rgba(147,197,253,0.7)'
+            ctx.font = `${Math.min(11, zoom * 0.4)}px monospace`
+            ctx.fillText(`${len.toFixed(2)}m`, mid.x + 3, mid.y - 3)
+          }
         }
       }
 
-      // Draw footprint polygon
       if (isActive && story.footprintPolygon.length >= 2) {
         ctx.strokeStyle = '#34d399'
         ctx.lineWidth = 1.5
         ctx.setLineDash([4, 4])
         ctx.beginPath()
-        const first = worldToCanvas(story.footprintPolygon[0], offset, scale)
+        const first = worldToCanvas(story.footprintPolygon[0], pan, zoom)
         ctx.moveTo(first.x, first.y)
         for (let i = 1; i < story.footprintPolygon.length; i++) {
-          const pt = worldToCanvas(story.footprintPolygon[i], offset, scale)
+          const pt = worldToCanvas(story.footprintPolygon[i], pan, zoom)
           ctx.lineTo(pt.x, pt.y)
         }
-        ctx.closePath()
-        ctx.stroke()
-        ctx.setLineDash([])
+        ctx.closePath(); ctx.stroke(); ctx.setLineDash([])
       }
     }
 
-    // Polygon in-progress points
+    // Polygon in-progress
     if (drawingTool === 'polygon' && polyPoints.length > 0) {
       ctx.strokeStyle = '#f59e0b'
       ctx.lineWidth = 1.5
       ctx.beginPath()
-      const fp = worldToCanvas(polyPoints[0], offset, scale)
+      const fp = worldToCanvas(polyPoints[0], pan, zoom)
       ctx.moveTo(fp.x, fp.y)
       for (let i = 1; i < polyPoints.length; i++) {
-        const pp = worldToCanvas(polyPoints[i], offset, scale)
+        const pp = worldToCanvas(polyPoints[i], pan, zoom)
         ctx.lineTo(pp.x, pp.y)
       }
-      // Rubber-band to mouse
-      const mp = worldToCanvas(mouseWorld, offset, scale)
-      ctx.lineTo(mp.x, mp.y)
-      ctx.stroke()
-      // Dots
+      const mp = worldToCanvas(mouseWorld, pan, zoom)
+      ctx.lineTo(mp.x, mp.y); ctx.stroke()
       for (const pt of polyPoints) {
-        const pp = worldToCanvas(pt, offset, scale)
+        const pp = worldToCanvas(pt, pan, zoom)
         ctx.fillStyle = '#fbbf24'
         ctx.beginPath(); ctx.arc(pp.x, pp.y, 4, 0, Math.PI * 2); ctx.fill()
       }
     }
 
-    // Wall rubber-band line
+    // Wall rubber-band
     if (drawingTool === 'wall' && pendingStart) {
-      const snappedEnd = snapToAngle(pendingStart, mouseWorld)
-      const a = worldToCanvas(pendingStart, offset, scale)
-      const b = worldToCanvas(snappedEnd, offset, scale)
-      ctx.strokeStyle = '#f59e0b'
-      ctx.lineWidth = 1.5
+      const end = previewEnd(pendingStart)
+      const a = worldToCanvas(pendingStart, pan, zoom)
+      const b = worldToCanvas(end, pan, zoom)
+      ctx.strokeStyle = kbDir ? '#34d399' : '#f59e0b'
+      ctx.lineWidth = 2
       ctx.setLineDash([6, 3])
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke()
       ctx.setLineDash([])
 
+      // Direction arrow at end
+      const dx = b.x - a.x, dy = b.y - a.y
+      const ang = Math.atan2(dy, dx)
+      const aw = 8
+      ctx.fillStyle = kbDir ? '#34d399' : '#f59e0b'
+      ctx.beginPath()
+      ctx.moveTo(b.x, b.y)
+      ctx.lineTo(b.x - aw * Math.cos(ang - 0.4), b.y - aw * Math.sin(ang - 0.4))
+      ctx.lineTo(b.x - aw * Math.cos(ang + 0.4), b.y - aw * Math.sin(ang + 0.4))
+      ctx.closePath(); ctx.fill()
+
       // Length label
-      const dx = snappedEnd.x - pendingStart.x
-      const dy = snappedEnd.y - pendingStart.y
-      const len = Math.sqrt(dx * dx + dy * dy).toFixed(2)
+      const wdx = end.x - pendingStart.x, wdy = end.y - pendingStart.y
+      const len = Math.sqrt(wdx * wdx + wdy * wdy).toFixed(2)
       const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
-      ctx.fillStyle = '#fbbf24'
-      ctx.font = '11px monospace'
-      ctx.fillText(`${len}m`, mid.x + 4, mid.y - 4)
+      ctx.fillStyle = '#fef08a'
+      ctx.font = 'bold 12px monospace'
+      ctx.fillText(`${len}m`, mid.x + 4, mid.y - 6)
+
+      // Start dot
+      ctx.fillStyle = '#60a5fa'
+      ctx.beginPath(); ctx.arc(a.x, a.y, 5, 0, Math.PI * 2); ctx.fill()
     }
 
-    // Cursor crosshair
-    const mp = worldToCanvas(mouseWorld, offset, scale)
-    ctx.strokeStyle = 'rgba(255,255,255,0.3)'
+    // Crosshair
+    const mp = worldToCanvas(mouseWorld, pan, zoom)
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)'
     ctx.lineWidth = 0.5
     ctx.beginPath(); ctx.moveTo(mp.x, 0); ctx.lineTo(mp.x, CANVAS_PX); ctx.stroke()
     ctx.beginPath(); ctx.moveTo(0, mp.y); ctx.lineTo(CANVAS_PX, mp.y); ctx.stroke()
 
-    // Coordinate label
-    ctx.fillStyle = 'rgba(255,255,255,0.5)'
+    // Coords + zoom
+    ctx.fillStyle = 'rgba(255,255,255,0.45)'
     ctx.font = '10px monospace'
-    ctx.fillText(`(${mouseWorld.x.toFixed(1)}, ${mouseWorld.y.toFixed(1)})`, 6, CANVAS_PX - 6)
-  }, [stories, activeStoryId, pendingStart, mouseWorld, polyPoints, offset, scale, gridSizeM, drawingTool])
+    ctx.fillText(`(${mouseWorld.x.toFixed(2)}, ${mouseWorld.y.toFixed(2)})  ×${(zoom / BASE_ZOOM).toFixed(1)}`, 6, CANVAS_PX - 6)
+  }, [stories, activeStoryId, pendingStart, mouseWorld, polyPoints, pan, zoom, gridSizeM, drawingTool, previewEnd, kbDir, BASE_ZOOM])
 
-  // ── Input handlers ────────────────────────────────────────────────────────
-  function handleMouseMove(e: React.MouseEvent<HTMLCanvasElement>) {
-    setMouseWorld(getWorldPos(e))
-  }
-
+  // ── Click ─────────────────────────────────────────────────────────────────
   function handleClick(e: React.MouseEvent<HTMLCanvasElement>) {
+    if (isPanning.current) return
     if (!activeStoryId) return
     const pt = getWorldPos(e)
 
     if (drawingTool === 'wall') {
       if (!pendingStart) {
         setPendingStart(pt)
+        setKbLength('')
+        setKbDir(null)
+        setTimeout(() => lengthInputRef.current?.focus(), 50)
       } else {
-        const end = snapToAngle(pendingStart, pt)
-        addWall(activeStoryId, { start: pendingStart, end })
-        // Chain: new wall starts from this end
-        setPendingStart(end)
+        commitWall()
       }
     }
 
     if (drawingTool === 'polygon') {
-      // Close polygon if clicking near first point
       if (polyPoints.length >= 3) {
         const fp = polyPoints[0]
-        const dist = Math.sqrt((pt.x - fp.x) ** 2 + (pt.y - fp.y) ** 2)
-        if (dist < gridSizeM * 1.5) {
+        if (Math.sqrt((pt.x - fp.x) ** 2 + (pt.y - fp.y) ** 2) < gridSizeM * 1.5) {
           setFootprint(activeStoryId, polyPoints)
           setPolyPoints([])
           return
@@ -234,50 +370,148 @@ export default function DrawingCanvas({ className }: Props) {
 
   function handleRightClick(e: React.MouseEvent<HTMLCanvasElement>) {
     e.preventDefault()
-    // Right-click cancels current operation
     setPendingStart(null)
     setPolyPoints([])
+    setKbLength('')
+    setKbDir(null)
   }
 
   function handleDoubleClick() {
-    if (drawingTool === 'wall') {
-      setPendingStart(null)
-    }
+    if (drawingTool === 'wall') { setPendingStart(null); setKbLength(''); setKbDir(null) }
     if (drawingTool === 'polygon' && polyPoints.length >= 3 && activeStoryId) {
       setFootprint(activeStoryId, polyPoints)
       setPolyPoints([])
     }
   }
 
+  // ── Keyboard input panel handlers ─────────────────────────────────────────
+  function handleLengthKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') { commitWall(); return }
+    if (e.key === 'Escape') { setPendingStart(null); setKbLength(''); setKbDir(null); return }
+
+    const dir = ARROW_DIR[e.key]
+    if (dir) {
+      e.preventDefault()
+      setKbDir(dir)
+    }
+  }
+
+  function handleDirButton(dir: Point2D) {
+    setKbDir(dir)
+    const len = parseFloat(kbLength)
+    if (!isNaN(len) && len > 0 && pendingStart && activeStoryId) {
+      const end = { x: pendingStart.x + dir.x * len, y: pendingStart.y + dir.y * len }
+      addWall(activeStoryId, { start: pendingStart, end })
+      setPendingStart(end)
+      setKbLength('')
+      setKbDir(null)
+      lengthInputRef.current?.focus()
+    }
+  }
+
+  const zoomPct = Math.round((zoom / BASE_ZOOM) * 100)
+
   return (
-    <div className={`flex flex-col gap-2 ${className ?? ''}`}>
+    <div className={`flex flex-col gap-2 ${className ?? ''}`} ref={containerRef}>
+      {/* Status bar */}
       <div className="flex items-center gap-2 text-xs text-slate-400">
         <span>Active: <span className="text-blue-400 font-medium">{activeStory?.name ?? '—'}</span></span>
-        <span className="ml-auto">
-          {drawingTool === 'wall' && (pendingStart ? 'Click to place end point • Right-click to cancel' : 'Click to start wall')}
+        <span className="ml-auto text-slate-500">
+          {drawingTool === 'wall' && !pendingStart && 'Click canvas to start wall'}
+          {drawingTool === 'wall' && pendingStart && 'Type length → press arrow key direction, or click end point'}
           {drawingTool === 'polygon' && (polyPoints.length === 0 ? 'Click to place polygon points' : `${polyPoints.length} pts — click near start or double-click to close`)}
-          {drawingTool === 'select' && 'Select mode'}
+          {drawingTool === 'select' && 'Alt+drag or middle-mouse to pan • scroll to zoom'}
         </span>
       </div>
-      <canvas
-        ref={canvasRef}
-        width={CANVAS_PX}
-        height={CANVAS_PX}
-        className="rounded-lg border border-slate-700 cursor-crosshair"
-        style={{ width: '100%', aspectRatio: '1 / 1' }}
-        onMouseMove={handleMouseMove}
-        onClick={handleClick}
-        onContextMenu={handleRightClick}
-        onDoubleClick={handleDoubleClick}
-      />
-      <div className="flex gap-2 mt-1">
+
+      {/* Keyboard measurement panel — shown when a wall is in progress */}
+      {drawingTool === 'wall' && pendingStart && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-slate-800 border border-slate-600 rounded-lg">
+          <span className="text-xs text-slate-400 shrink-0">Length (m)</span>
+          <input
+            ref={lengthInputRef}
+            type="number"
+            step="0.1"
+            min="0.01"
+            placeholder="e.g. 3.5"
+            value={kbLength}
+            onChange={(e) => setKbLength(e.target.value)}
+            onKeyDown={handleLengthKeyDown}
+            className="w-24 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-slate-100 text-sm focus:outline-none focus:border-blue-400"
+            autoFocus
+          />
+          <span className="text-xs text-slate-500">Direction:</span>
+          <div className="grid grid-cols-3 gap-0.5">
+            <div />
+            <button onClick={() => handleDirButton({ x: 0, y: 1 })}
+              className={`p-1 rounded ${kbDir?.y === 1 && kbDir?.x === 0 ? 'bg-green-600' : 'bg-slate-700 hover:bg-slate-600'}`}>
+              <ArrowUp size={12} className="text-slate-200" />
+            </button>
+            <div />
+            <button onClick={() => handleDirButton({ x: -1, y: 0 })}
+              className={`p-1 rounded ${kbDir?.x === -1 ? 'bg-green-600' : 'bg-slate-700 hover:bg-slate-600'}`}>
+              <ArrowLeft size={12} className="text-slate-200" />
+            </button>
+            <button onClick={() => handleDirButton({ x: 0, y: -1 })}
+              className={`p-1 rounded ${kbDir?.y === -1 && kbDir?.x === 0 ? 'bg-green-600' : 'bg-slate-700 hover:bg-slate-600'}`}>
+              <ArrowDown size={12} className="text-slate-200" />
+            </button>
+            <button onClick={() => handleDirButton({ x: 1, y: 0 })}
+              className={`p-1 rounded ${kbDir?.x === 1 ? 'bg-green-600' : 'bg-slate-700 hover:bg-slate-600'}`}>
+              <ArrowRight size={12} className="text-slate-200" />
+            </button>
+          </div>
+          <span className="text-xs text-slate-600 ml-1">or press ↑↓←→ keys then Enter</span>
+          <button onClick={() => { setPendingStart(null); setKbLength(''); setKbDir(null) }}
+            className="ml-auto text-xs text-slate-500 hover:text-red-400">✕ Cancel</button>
+        </div>
+      )}
+
+      {/* Canvas */}
+      <div className="relative flex-1">
+        <canvas
+          ref={canvasRef}
+          width={CANVAS_PX}
+          height={CANVAS_PX}
+          className="rounded-lg border border-slate-700 w-full"
+          style={{ aspectRatio: '1 / 1', cursor: isPanning.current ? 'grabbing' : 'crosshair' }}
+          onMouseMove={handleMouseMovePan}
+          onMouseDown={handleMouseDown}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={() => { isPanning.current = false }}
+          onClick={handleClick}
+          onContextMenu={handleRightClick}
+          onDoubleClick={handleDoubleClick}
+        />
+
+        {/* Zoom controls overlay */}
+        <div className="absolute bottom-3 right-3 flex flex-col gap-1">
+          <button onClick={() => applyZoom(1.25)} title="Zoom in"
+            className="w-7 h-7 flex items-center justify-center bg-slate-800/90 border border-slate-600 rounded text-slate-300 hover:bg-slate-700">
+            <ZoomIn size={13} />
+          </button>
+          <button onClick={resetView} title="Reset view"
+            className="w-7 h-7 flex items-center justify-center bg-slate-800/90 border border-slate-600 rounded text-slate-400 hover:bg-slate-700 text-xs font-mono">
+            {zoomPct}%
+          </button>
+          <button onClick={() => applyZoom(0.8)} title="Zoom out"
+            className="w-7 h-7 flex items-center justify-center bg-slate-800/90 border border-slate-600 rounded text-slate-300 hover:bg-slate-700">
+            <ZoomOut size={13} />
+          </button>
+        </div>
+      </div>
+
+      {/* Bottom bar */}
+      <div className="flex gap-2 items-center">
         <button
           onClick={() => activeStoryId && clearWalls(activeStoryId)}
           className="text-xs px-3 py-1 rounded bg-red-900/40 text-red-300 hover:bg-red-800/60 border border-red-800/40"
         >
           Clear Layer
         </button>
-        <span className="text-xs text-slate-500 self-center">Grid: {gridSizeM}m</span>
+        <span className="text-xs text-slate-600">
+          Scroll to zoom • Alt+drag or middle-mouse to pan • Right-click to cancel
+        </span>
       </div>
     </div>
   )
