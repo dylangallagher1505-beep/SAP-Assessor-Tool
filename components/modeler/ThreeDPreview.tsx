@@ -4,7 +4,6 @@ import { OrbitControls, Grid } from '@react-three/drei'
 import * as THREE from 'three'
 import { useMemo } from 'react'
 import { useModelerStore, Story, Wall, Point2D } from '@/lib/modelerStore'
-import { polygonBBox } from '@/lib/takeoffCalc'
 
 // ─── Wall box ────────────────────────────────────────────────────────────────
 
@@ -71,89 +70,6 @@ function FloorSlab({ story }: { story: Story }) {
   )
 }
 
-// ─── Roof ─────────────────────────────────────────────────────────────────────
-
-function RoofMesh({ topStory }: { topStory: Story }) {
-  const { roofConfig } = useModelerStore()
-
-  const roofGeom = useMemo(() => {
-    const pts = topStory.footprintPolygon.length >= 3
-      ? topStory.footprintPolygon
-      : wallsToConvexHull(topStory.walls)
-    if (pts.length < 3) return null
-
-    const bbox = polygonBBox(pts)
-    const { minX, maxX, minY, maxY, w, d } = bbox
-    const baseY = topStory.startHeight + topStory.storyHeight
-    const pitchRad = (roofConfig.pitchDegrees * Math.PI) / 180
-    const rise = (Math.min(w, d) / 2) * Math.tan(pitchRad)
-
-    const geom = new THREE.BufferGeometry()
-
-    if (roofConfig.type === 'flat') {
-      const verts = new Float32Array([
-        minX, baseY, minY,  maxX, baseY, minY,  maxX, baseY, maxY,
-        minX, baseY, minY,  maxX, baseY, maxY,  minX, baseY, maxY,
-      ])
-      geom.setAttribute('position', new THREE.BufferAttribute(verts, 3))
-    } else if (roofConfig.type === 'shed') {
-      const highY = baseY + rise * 2
-      const verts = new Float32Array([
-        minX, baseY, minY,  maxX, baseY, minY,  maxX, highY, maxY,
-        minX, baseY, minY,  maxX, highY, maxY,  minX, highY, maxY,
-      ])
-      geom.setAttribute('position', new THREE.BufferAttribute(verts, 3))
-    } else if (roofConfig.type === 'gable') {
-      const ridgeZ = (minY + maxY) / 2
-      const ridgeY = baseY + rise
-      // Front slope
-      const front = new Float32Array([
-        minX, baseY, minY,  maxX, baseY, minY,  maxX, ridgeY, ridgeZ,
-        minX, baseY, minY,  maxX, ridgeY, ridgeZ,  minX, ridgeY, ridgeZ,
-      ])
-      // Back slope
-      const back = new Float32Array([
-        minX, ridgeY, ridgeZ,  maxX, ridgeY, ridgeZ,  maxX, baseY, maxY,
-        minX, ridgeY, ridgeZ,  maxX, baseY, maxY,  minX, baseY, maxY,
-      ])
-      // Gable ends (triangles)
-      const endA = new Float32Array([
-        minX, baseY, minY,  minX, ridgeY, ridgeZ,  minX, baseY, maxY,
-      ])
-      const endB = new Float32Array([
-        maxX, baseY, minY,  maxX, baseY, maxY,  maxX, ridgeY, ridgeZ,
-      ])
-      const all = new Float32Array([...front, ...back, ...endA, ...endB])
-      geom.setAttribute('position', new THREE.BufferAttribute(all, 3))
-    } else {
-      // Hip: simplified as gable fallback
-      const ridgeZ = (minY + maxY) / 2
-      const ridgeY = baseY + rise
-      const front = new Float32Array([
-        minX, baseY, minY,  maxX, baseY, minY,  maxX, ridgeY, ridgeZ,
-        minX, baseY, minY,  maxX, ridgeY, ridgeZ,  minX, ridgeY, ridgeZ,
-      ])
-      const back = new Float32Array([
-        minX, ridgeY, ridgeZ,  maxX, ridgeY, ridgeZ,  maxX, baseY, maxY,
-        minX, ridgeY, ridgeZ,  maxX, baseY, maxY,  minX, baseY, maxY,
-      ])
-      const all = new Float32Array([...front, ...back])
-      geom.setAttribute('position', new THREE.BufferAttribute(all, 3))
-    }
-
-    geom.computeVertexNormals()
-    return geom
-  }, [topStory, roofConfig])
-
-  if (!roofGeom) return null
-
-  return (
-    <mesh geometry={roofGeom}>
-      <meshStandardMaterial color="#7c3aed" side={THREE.DoubleSide} />
-    </mesh>
-  )
-}
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function wallsToConvexHull(walls: Wall[]): Point2D[] {
@@ -167,10 +83,7 @@ function wallsToConvexHull(walls: Wall[]): Point2D[] {
 // ─── Scene ────────────────────────────────────────────────────────────────────
 
 function Scene() {
-  const { stories, activeStoryId, showRoof } = useModelerStore()
-
-  const totalHeight = stories.reduce((max, s) => Math.max(max, s.startHeight + s.storyHeight), 0)
-  const topStory = stories[stories.length - 1]
+  const { stories, activeStoryId } = useModelerStore()
 
   return (
     <>
@@ -202,8 +115,6 @@ function Scene() {
           ))}
         </group>
       ))}
-
-      {showRoof && topStory && <RoofMesh topStory={topStory} />}
     </>
   )
 }
