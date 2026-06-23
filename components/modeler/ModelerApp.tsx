@@ -7,7 +7,7 @@ import Toolbar from './Toolbar'
 
 export default function ModelerApp() {
   return (
-    <div className="flex flex-col h-full bg-slate-950 text-slate-100 overflow-hidden">
+    <div className="flex flex-col h-full bg-gray-50 text-gray-800 overflow-hidden">
       {/* Toolbar */}
       <div className="px-3 pt-2 shrink-0">
         <Toolbar />
