@@ -73,8 +73,11 @@ export default function DrawingCanvas({ className }: Props) {
   const [polyPoints, setPolyPoints] = useState<Point2D[]>([])
 
   // Keyboard measurement input
-  const [kbLength, setKbLength] = useState('')          // typed length (metres)
-  const [kbDir, setKbDir] = useState<Point2D | null>(null) // locked direction
+  const [kbLength, setKbLength] = useState('')
+  const [kbDir, setKbDir] = useState<Point2D | null>(null)
+
+  // Track the chain of placed vertices so we can undo and close shape
+  const [wallChain, setWallChain] = useState<Point2D[]>([])
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
   const getCanvasPos = useCallback((e: MouseEvent | React.MouseEvent): { cx: number; cy: number } => {
@@ -105,17 +108,29 @@ export default function DrawingCanvas({ className }: Props) {
     return snapToAngle(start, mouseWorld)
   }, [kbLength, kbDir, mouseWorld])
 
-  function commitWall() {
+  function commitWall(overrideEnd?: Point2D) {
     if (!pendingStart || !activeStoryId) return
-    const end = previewEnd(pendingStart)
+    const end = overrideEnd ?? previewEnd(pendingStart)
     const dx = end.x - pendingStart.x
     const dy = end.y - pendingStart.y
     if (Math.sqrt(dx * dx + dy * dy) < 0.05) return
     addWall(activeStoryId, { start: pendingStart, end })
+    setWallChain(prev => [...prev, pendingStart])
     setPendingStart(end)
     setKbLength('')
     setKbDir(null)
     lengthInputRef.current?.focus()
+  }
+
+  function closeShape() {
+    if (!pendingStart || !activeStoryId || wallChain.length < 2) return
+    const firstPoint = wallChain[0]
+    addWall(activeStoryId, { start: pendingStart, end: firstPoint })
+    // Reset drawing state
+    setPendingStart(null)
+    setWallChain([])
+    setKbLength('')
+    setKbDir(null)
   }
 
   // ── Zoom / Pan ────────────────────────────────────────────────────────────
@@ -323,6 +338,20 @@ export default function DrawingCanvas({ className }: Props) {
       // Start dot
       ctx.fillStyle = '#60a5fa'
       ctx.beginPath(); ctx.arc(a.x, a.y, 5, 0, Math.PI * 2); ctx.fill()
+
+      // Close-shape snap ring: highlight first point when mouse is near it
+      if (wallChain.length >= 2) {
+        const firstPt = worldToCanvas(wallChain[0], pan, zoom)
+        const distToFirst = Math.sqrt((b.x - firstPt.x) ** 2 + (b.y - firstPt.y) ** 2)
+        const snapRing = distToFirst < 14
+        ctx.strokeStyle = snapRing ? '#22c55e' : 'rgba(34,197,94,0.4)'
+        ctx.lineWidth = snapRing ? 2.5 : 1.5
+        ctx.beginPath(); ctx.arc(firstPt.x, firstPt.y, 9, 0, Math.PI * 2); ctx.stroke()
+        if (snapRing) {
+          ctx.fillStyle = 'rgba(34,197,94,0.25)'
+          ctx.beginPath(); ctx.arc(firstPt.x, firstPt.y, 9, 0, Math.PI * 2); ctx.fill()
+        }
+      }
     }
 
     // Crosshair
@@ -336,7 +365,7 @@ export default function DrawingCanvas({ className }: Props) {
     ctx.fillStyle = 'rgba(255,255,255,0.45)'
     ctx.font = '10px monospace'
     ctx.fillText(`(${mouseWorld.x.toFixed(2)}, ${mouseWorld.y.toFixed(2)})  ×${(zoom / BASE_ZOOM).toFixed(1)}`, 6, CANVAS_PX - 6)
-  }, [stories, activeStoryId, pendingStart, mouseWorld, polyPoints, pan, zoom, gridSizeM, drawingTool, previewEnd, kbDir, BASE_ZOOM])
+  }, [stories, activeStoryId, pendingStart, mouseWorld, polyPoints, pan, zoom, gridSizeM, drawingTool, previewEnd, kbDir, BASE_ZOOM, wallChain])
 
   // ── Click ─────────────────────────────────────────────────────────────────
   function handleClick(e: React.MouseEvent<HTMLCanvasElement>) {
@@ -370,14 +399,34 @@ export default function DrawingCanvas({ className }: Props) {
 
   function handleRightClick(e: React.MouseEvent<HTMLCanvasElement>) {
     e.preventDefault()
-    setPendingStart(null)
-    setPolyPoints([])
-    setKbLength('')
-    setKbDir(null)
+    if (drawingTool === 'wall') {
+      if (wallChain.length > 0) {
+        // Undo last segment: go back to previous point, remove last placed wall
+        const prevPoint = wallChain[wallChain.length - 1]
+        const lastWall = activeStory?.walls.at(-1)
+        if (lastWall && activeStoryId) {
+          useModelerStore.getState().removeWall(activeStoryId, lastWall.id)
+        }
+        setWallChain(prev => prev.slice(0, -1))
+        setPendingStart(prevPoint)
+        setKbLength('')
+        setKbDir(null)
+      } else {
+        // Nothing in chain — cancel entirely
+        setPendingStart(null)
+        setKbLength('')
+        setKbDir(null)
+      }
+    }
+    if (drawingTool === 'polygon') {
+      if (polyPoints.length > 0) {
+        setPolyPoints(prev => prev.slice(0, -1))
+      }
+    }
   }
 
   function handleDoubleClick() {
-    if (drawingTool === 'wall') { setPendingStart(null); setKbLength(''); setKbDir(null) }
+    if (drawingTool === 'wall') { setPendingStart(null); setWallChain([]); setKbLength(''); setKbDir(null) }
     if (drawingTool === 'polygon' && polyPoints.length >= 3 && activeStoryId) {
       setFootprint(activeStoryId, polyPoints)
       setPolyPoints([])
@@ -386,11 +435,22 @@ export default function DrawingCanvas({ className }: Props) {
 
   // ── Keyboard input panel handlers ─────────────────────────────────────────
   function handleLengthKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Escape') { setPendingStart(null); setKbLength(''); setKbDir(null) }
-    // Arrow keys set direction and commit if a valid length is typed
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      setPendingStart(null); setWallChain([]); setKbLength(''); setKbDir(null)
+      return
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      // If direction + length are both set, commit the wall
+      if (kbDir && parseFloat(kbLength) > 0) {
+        handleDirButton(kbDir)
+      }
+      return
+    }
     const dir = ARROW_DIR[e.key]
     if (dir) {
-      e.preventDefault() // prevent cursor move in input
+      e.preventDefault()
       handleDirButton(dir)
     }
   }
@@ -420,7 +480,9 @@ export default function DrawingCanvas({ className }: Props) {
         <span>Active: <span className="text-blue-400 font-medium">{activeStory?.name ?? '—'}</span></span>
         <span className="ml-auto text-slate-500">
           {drawingTool === 'wall' && !pendingStart && 'Click canvas to start wall'}
-          {drawingTool === 'wall' && pendingStart && 'Type length in box → click a direction arrow to place • or click on canvas'}
+          {drawingTool === 'wall' && pendingStart && (wallChain.length >= 2
+            ? `${wallChain.length + 1} pts — type length + direction • Enter to commit • Right-click to undo • Close Shape to finish`
+            : 'Type length → pick direction or click canvas • Right-click to undo')}
           {drawingTool === 'polygon' && (polyPoints.length === 0 ? 'Click to place polygon points' : `${polyPoints.length} pts — click near start or double-click to close`)}
           {drawingTool === 'select' && 'Alt+drag or middle-mouse to pan • scroll to zoom'}
         </span>
@@ -471,7 +533,13 @@ export default function DrawingCanvas({ className }: Props) {
               ? 'Click a direction arrow (or press ↑ ↓ ← → on keyboard)'
               : 'Type a length first, then pick direction'}
           </span>
-          <button onClick={() => { setPendingStart(null); setKbLength(''); setKbDir(null) }}
+          {wallChain.length >= 2 && (
+            <button onClick={closeShape}
+              className="px-3 py-1 rounded bg-green-700 hover:bg-green-600 text-white text-xs font-medium shrink-0">
+              ✓ Close Shape
+            </button>
+          )}
+          <button onClick={() => { setPendingStart(null); setWallChain([]); setKbLength(''); setKbDir(null) }}
             className="ml-auto text-xs text-slate-500 hover:text-red-400 shrink-0">✕ Cancel</button>
         </div>
       )}
