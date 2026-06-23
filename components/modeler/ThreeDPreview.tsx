@@ -3,7 +3,7 @@ import { Canvas } from '@react-three/fiber'
 import { OrbitControls, Grid, Edges } from '@react-three/drei'
 import * as THREE from 'three'
 import { useMemo } from 'react'
-import { useModelerStore, Story, Wall, Point2D, RoofConfig } from '@/lib/modelerStore'
+import { useModelerStore, Story, Wall, Point2D, RoofConfig, Opening } from '@/lib/modelerStore'
 
 // ─── Extruded Room ────────────────────────────────────────────────────────────
 
@@ -243,6 +243,50 @@ function wallsToConvexHull(walls: Wall[]): Point2D[] {
   )
 }
 
+// ─── Opening planes on wall faces ────────────────────────────────────────────
+
+function OpeningMeshes({ story }: { story: Story }) {
+  const meshes = useMemo(() => {
+    return story.openings.flatMap((op) => {
+      const wall = story.walls.find((w) => w.id === op.wallId)
+      if (!wall) return []
+      const dx = wall.end.x - wall.start.x
+      const dz = wall.end.y - wall.start.y
+      const wallLen = Math.sqrt(dx * dx + dz * dz)
+      if (wallLen < 0.01) return []
+
+      const dirX = dx / wallLen, dirZ = dz / wallLen
+      // Opening centre in world space
+      const uCentre = op.uOffset * wallLen + op.width / 2
+      const vCentre = story.startHeight + (op.type === 'door' ? op.height / 2 : op.sillHeight + op.height / 2)
+
+      const cx = wall.start.x + dirX * uCentre
+      const cz = wall.start.y + dirZ * uCentre
+      const angle = Math.atan2(dz, dx)
+
+      return [{
+        key: op.id,
+        position: [cx, vCentre, cz] as [number, number, number],
+        rotation: [0, -angle, 0] as [number, number, number],
+        width: op.width,
+        height: op.height,
+        color: op.type === 'window' ? '#7dd3fc' : '#fbbf24',
+      }]
+    })
+  }, [story])
+
+  return (
+    <>
+      {meshes.map((m) => (
+        <mesh key={m.key} position={m.position} rotation={m.rotation}>
+          <planeGeometry args={[m.width, m.height]} />
+          <meshStandardMaterial color={m.color} opacity={0.55} transparent side={THREE.DoubleSide} />
+        </mesh>
+      ))}
+    </>
+  )
+}
+
 // ─── Scene ────────────────────────────────────────────────────────────────────
 
 function Scene() {
@@ -282,6 +326,7 @@ function Scene() {
               <>
                 <ExtrudedRoom story={story} isActive={isActive} />
                 <FloorSlab story={story} />
+                {story.openings.length > 0 && <OpeningMeshes story={story} />}
               </>
             ) : (
               <>

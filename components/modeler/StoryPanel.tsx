@@ -1,7 +1,8 @@
 'use client'
-import { PlusCircle, Trash2, ChevronDown, ChevronRight, Copy } from 'lucide-react'
+import { PlusCircle, Trash2, ChevronDown, ChevronRight, Copy, Square } from 'lucide-react'
 import { useState } from 'react'
 import { useModelerStore } from '@/lib/modelerStore'
+import OpeningsPanel from './OpeningsPanel'
 
 function shoelaceArea(pts: { x: number; y: number }[]): number {
   let a = 0
@@ -16,6 +17,7 @@ export default function StoryPanel() {
   const { stories, activeStoryId, addStory, removeStory, updateStory, setActiveStory, copyFootprintTo, roofConfig, updateRoof, showRoof, setShowRoof } =
     useModelerStore()
   const [roofOpen, setRoofOpen] = useState(true)
+  const [openingsOpen, setOpeningsOpen] = useState(true)
 
   return (
     <div className="flex flex-col gap-3 p-3 bg-slate-900 border border-slate-700 rounded-lg text-sm h-full overflow-y-auto">
@@ -101,6 +103,18 @@ export default function StoryPanel() {
             </div>
           )
         })}
+      </div>
+
+      {/* Openings Section */}
+      <div className="border-t border-slate-700 pt-3">
+        <button
+          className="flex items-center gap-1 font-semibold text-slate-200 w-full mb-2"
+          onClick={() => setOpeningsOpen((v) => !v)}
+        >
+          {openingsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          <Square size={12} /> Windows & Doors
+        </button>
+        {openingsOpen && <OpeningsPanel />}
       </div>
 
       {/* Roof Section */}

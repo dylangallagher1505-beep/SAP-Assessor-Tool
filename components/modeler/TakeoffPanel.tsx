@@ -21,6 +21,11 @@ export default function TakeoffPanel() {
   const totalFloor = storyTakeoffs.reduce((s, t) => s + t.floorArea, 0)
   const totalWall = storyTakeoffs.reduce((s, t) => s + t.wallSurfaceArea, 0)
 
+  const totalWindowArea = stories.flatMap((s) => s.openings.filter((o) => o.type === 'window'))
+    .reduce((sum, o) => sum + o.width * o.height, 0)
+  const totalDoorArea = stories.flatMap((s) => s.openings.filter((o) => o.type === 'door'))
+    .reduce((sum, o) => sum + o.width * o.height, 0)
+
   return (
     <div className="flex flex-col gap-4 p-3 bg-slate-900 border border-slate-700 rounded-lg text-sm h-full overflow-y-auto">
       <div className="font-semibold text-slate-200 flex items-center gap-2">
@@ -34,8 +39,16 @@ export default function TakeoffPanel() {
           <div className="text-lg font-bold text-white">{fmt(totalFloor)} m²</div>
         </div>
         <div className="bg-slate-800 border border-slate-700 rounded-lg p-2">
-          <div className="text-xs text-slate-400">Total Wall Area</div>
+          <div className="text-xs text-slate-400">Gross Wall Area</div>
           <div className="text-lg font-bold text-white">{fmt(totalWall)} m²</div>
+        </div>
+        <div className="bg-sky-950/40 border border-sky-800/40 rounded-lg p-2">
+          <div className="text-xs text-sky-300">Windows</div>
+          <div className="text-lg font-bold text-white">{fmt(totalWindowArea)} m²</div>
+        </div>
+        <div className="bg-amber-950/40 border border-amber-800/40 rounded-lg p-2">
+          <div className="text-xs text-amber-300">Doors</div>
+          <div className="text-lg font-bold text-white">{fmt(totalDoorArea)} m²</div>
         </div>
       </div>
 
