@@ -7,13 +7,7 @@ import Toolbar from './Toolbar'
 
 export default function ModelerApp() {
   return (
-    <div className="flex flex-col h-screen bg-slate-950 text-slate-100 overflow-hidden">
-      {/* Header */}
-      <header className="flex items-center gap-3 px-4 py-2 border-b border-slate-800 shrink-0">
-        <div className="text-blue-400 font-bold text-sm tracking-wide">3D Building Modeler</div>
-        <span className="text-slate-600 text-xs">Construction Takeoff & Estimating</span>
-      </header>
-
+    <div className="flex flex-col h-full bg-slate-950 text-slate-100 overflow-hidden">
       {/* Toolbar */}
       <div className="px-3 pt-2 shrink-0">
         <Toolbar />

@@ -1,4 +1,8 @@
-import FloorPlanTool from '@/components/FloorPlanTool';
+'use client'
+import dynamic from 'next/dynamic'
+
+const ModelerApp = dynamic(() => import('@/components/modeler/ModelerApp'), { ssr: false })
+
 export default function FloorPlanPage() {
-  return <FloorPlanTool />;
+  return <ModelerApp />
 }

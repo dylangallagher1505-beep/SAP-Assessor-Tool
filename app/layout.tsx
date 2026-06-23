@@ -12,7 +12,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="en" className="h-full">
       <body className="h-full flex flex-col overflow-hidden bg-white">
         <Navbar />
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 overflow-hidden">
           {children}
         </main>
       </body>
