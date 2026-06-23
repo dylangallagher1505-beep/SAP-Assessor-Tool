@@ -155,47 +155,47 @@ export default function TakeoffPanel() {
   const totalHeatLoss = fabricRows.reduce((s, r) => s + r.heatLossArea * r.uValue, 0)
 
   return (
-    <div className="flex flex-col gap-3 p-3 bg-slate-900 border border-slate-700 rounded-lg text-sm h-full overflow-y-auto">
-      <div className="font-semibold text-slate-200 flex items-center gap-2">
+    <div className="flex flex-col gap-3 p-3 bg-white border border-gray-200 rounded-xl text-sm h-full overflow-y-auto shadow-sm">
+      <div className="font-semibold text-gray-800 flex items-center gap-2">
         <Ruler size={15} /> Takeoff
       </div>
 
       {/* Tab switcher */}
-      <div className="flex rounded-lg overflow-hidden border border-slate-700 text-xs">
-        <button onClick={() => setTab('summary')} className={`flex-1 py-1 font-medium ${tab === 'summary' ? 'bg-blue-700 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>Summary</button>
-        <button onClick={() => setTab('schedule')} className={`flex-1 py-1 font-medium ${tab === 'schedule' ? 'bg-blue-700 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>SAP Schedule</button>
+      <div className="flex rounded-lg overflow-hidden border border-gray-200 text-xs">
+        <button onClick={() => setTab('summary')} className={`flex-1 py-1 font-medium ${tab === 'summary' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>Summary</button>
+        <button onClick={() => setTab('schedule')} className={`flex-1 py-1 font-medium ${tab === 'schedule' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>SAP Schedule</button>
       </div>
 
       {tab === 'summary' && (
         <>
           {/* Summary cards */}
           <div className="grid grid-cols-2 gap-2">
-            <div className="bg-blue-950/40 border border-blue-800/40 rounded-lg p-2">
-              <div className="text-xs text-blue-300">Total Floor Area</div>
-              <div className="text-lg font-bold text-white">{fmt(totalFloor)} m²</div>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-2">
+              <div className="text-xs text-blue-600">Total Floor Area</div>
+              <div className="text-lg font-bold text-blue-800">{fmt(totalFloor)} m²</div>
             </div>
-            <div className="bg-slate-800 border border-slate-700 rounded-lg p-2">
-              <div className="text-xs text-slate-400">Gross Wall Area</div>
-              <div className="text-lg font-bold text-white">{fmt(totalWall)} m²</div>
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-2">
+              <div className="text-xs text-gray-500">Gross Wall Area</div>
+              <div className="text-lg font-bold text-gray-800">{fmt(totalWall)} m²</div>
             </div>
-            <div className="bg-sky-950/40 border border-sky-800/40 rounded-lg p-2">
-              <div className="text-xs text-sky-300">Windows</div>
-              <div className="text-lg font-bold text-white">{fmt(totalWindowArea)} m²</div>
+            <div className="bg-sky-50 border border-sky-200 rounded-lg p-2">
+              <div className="text-xs text-sky-600">Windows</div>
+              <div className="text-lg font-bold text-sky-800">{fmt(totalWindowArea)} m²</div>
             </div>
-            <div className="bg-amber-950/40 border border-amber-800/40 rounded-lg p-2">
-              <div className="text-xs text-amber-300">Doors</div>
-              <div className="text-lg font-bold text-white">{fmt(totalDoorArea)} m²</div>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-2">
+              <div className="text-xs text-amber-600">Doors</div>
+              <div className="text-lg font-bold text-amber-800">{fmt(totalDoorArea)} m²</div>
             </div>
           </div>
 
           {/* Per-story */}
           <div>
-            <div className="flex items-center gap-1.5 text-xs font-medium text-slate-400 mb-2">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-gray-500 mb-2">
               <Layers size={12} /> Per Storey
             </div>
             <table className="w-full text-xs border-collapse">
               <thead>
-                <tr className="text-slate-500 border-b border-slate-700">
+                <tr className="text-gray-500 border-b border-gray-200">
                   <th className="text-left pb-1">Storey</th>
                   <th className="text-right pb-1">Floor</th>
                   <th className="text-right pb-1">Perim</th>
@@ -204,34 +204,34 @@ export default function TakeoffPanel() {
               </thead>
               <tbody>
                 {storyTakeoffs.map((t) => (
-                  <tr key={t.storyId} className="border-b border-slate-800 hover:bg-slate-800/40">
-                    <td className="py-1 text-slate-300">{t.storyName}</td>
-                    <td className="py-1 text-right text-slate-200">{fmt(t.floorArea)}</td>
-                    <td className="py-1 text-right text-slate-400">{fmt(t.wallSurfaceArea / (stories.find(s => s.id === t.storyId)?.storyHeight ?? 2.5))}m</td>
-                    <td className="py-1 text-right text-slate-200">{fmt(t.wallSurfaceArea)}</td>
+                  <tr key={t.storyId} className="border-b border-gray-100 hover:bg-gray-50">
+                    <td className="py-1 text-gray-700">{t.storyName}</td>
+                    <td className="py-1 text-right text-gray-800">{fmt(t.floorArea)}</td>
+                    <td className="py-1 text-right text-gray-500">{fmt(t.wallSurfaceArea / (stories.find(s => s.id === t.storyId)?.storyHeight ?? 2.5))}m</td>
+                    <td className="py-1 text-right text-gray-800">{fmt(t.wallSurfaceArea)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            <div className="text-xs text-slate-600 mt-1">Floor m² · Perimeter m · Wall m²</div>
+            <div className="text-xs text-gray-400 mt-1">Floor m² · Perimeter m · Wall m²</div>
           </div>
 
           {/* Roof */}
           {roofTakeoff && (
             <div>
-              <div className="flex items-center gap-1.5 text-xs font-medium text-slate-400 mb-2">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-gray-500 mb-2">
                 <Home size={12} /> Roof ({roofTakeoff.type})
               </div>
-              <div className="bg-purple-950/30 border border-purple-800/30 rounded-lg p-2 mb-2">
-                <div className="text-xs text-purple-300">Total Roof Area</div>
-                <div className="text-lg font-bold text-white">{fmt(roofTakeoff.totalArea)} m²</div>
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-2 mb-2">
+                <div className="text-xs text-slate-500">Total Roof Area</div>
+                <div className="text-lg font-bold text-slate-700">{fmt(roofTakeoff.totalArea)} m²</div>
               </div>
               <table className="w-full text-xs border-collapse">
                 <tbody>
                   {roofTakeoff.planes.map((p, i) => (
-                    <tr key={i} className="border-b border-slate-800">
-                      <td className="py-1 text-slate-400">{p.label}</td>
-                      <td className="py-1 text-right text-slate-200">{fmt(p.area)} m²</td>
+                    <tr key={i} className="border-b border-gray-100">
+                      <td className="py-1 text-gray-500">{p.label}</td>
+                      <td className="py-1 text-right text-gray-700">{fmt(p.area)} m²</td>
                     </tr>
                   ))}
                 </tbody>
@@ -245,25 +245,25 @@ export default function TakeoffPanel() {
         <>
           {/* SAP fabric schedule */}
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-xs font-medium text-slate-400">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-gray-500">
               <Table size={12} /> SAP 10.2 Fabric Schedule
             </div>
             <button
               onClick={() => exportCSV(fabricRows)}
-              className="flex items-center gap-1 text-xs text-green-400 hover:text-green-300"
+              className="flex items-center gap-1 text-xs text-green-600 hover:text-green-700"
             >
               <Download size={11} /> CSV
             </button>
           </div>
 
           {fabricRows.length === 0 ? (
-            <div className="text-xs text-slate-500 italic">Draw a room to generate the schedule.</div>
+            <div className="text-xs text-gray-400 italic">Draw a room to generate the schedule.</div>
           ) : (
             <>
               <div className="overflow-x-auto -mx-1">
                 <table className="w-full text-xs border-collapse min-w-full">
                   <thead>
-                    <tr className="text-slate-500 border-b border-slate-700 text-right">
+                    <tr className="text-gray-500 border-b border-gray-200 text-right">
                       <th className="text-left pb-1 pl-1 font-medium">Ref</th>
                       <th className="text-left pb-1 font-medium">Element</th>
                       <th className="pb-1 font-medium">A<sub>g</sub></th>
@@ -275,26 +275,26 @@ export default function TakeoffPanel() {
                   </thead>
                   <tbody>
                     {fabricRows.map((r) => (
-                      <tr key={r.ref} className="border-b border-slate-800/60 hover:bg-slate-800/40">
-                        <td className="py-0.5 pl-1 text-slate-500 font-mono">{r.ref}</td>
-                        <td className="py-0.5 text-slate-300 max-w-[80px] truncate" title={r.element}>{r.element}</td>
-                        <td className="py-0.5 text-right text-slate-400">{fmt(r.grossArea, 1)}</td>
-                        <td className="py-0.5 text-right text-slate-500">{r.openingArea > 0 ? fmt(r.openingArea, 1) : '—'}</td>
-                        <td className="py-0.5 text-right text-slate-200">{fmt(r.netArea, 1)}</td>
-                        <td className="py-0.5 text-right text-slate-400">{r.uValue > 0 ? fmt(r.uValue) : '—'}</td>
-                        <td className="py-0.5 text-right font-medium pr-1 text-amber-300">{r.heatLossArea > 0 ? fmt(r.heatLossArea * r.uValue, 1) : '—'}</td>
+                      <tr key={r.ref} className="border-b border-gray-100 hover:bg-gray-50">
+                        <td className="py-0.5 pl-1 text-gray-400 font-mono">{r.ref}</td>
+                        <td className="py-0.5 text-gray-700 max-w-[80px] truncate" title={r.element}>{r.element}</td>
+                        <td className="py-0.5 text-right text-gray-500">{fmt(r.grossArea, 1)}</td>
+                        <td className="py-0.5 text-right text-gray-400">{r.openingArea > 0 ? fmt(r.openingArea, 1) : '—'}</td>
+                        <td className="py-0.5 text-right text-gray-700">{fmt(r.netArea, 1)}</td>
+                        <td className="py-0.5 text-right text-gray-500">{r.uValue > 0 ? fmt(r.uValue) : '—'}</td>
+                        <td className="py-0.5 text-right font-medium pr-1 text-amber-600">{r.heatLossArea > 0 ? fmt(r.heatLossArea * r.uValue, 1) : '—'}</td>
                       </tr>
                     ))}
                   </tbody>
                   <tfoot>
-                    <tr className="border-t-2 border-slate-600">
-                      <td colSpan={6} className="pt-1.5 pl-1 text-xs text-slate-400 font-medium">Total fabric heat loss</td>
-                      <td className="pt-1.5 pr-1 text-right font-bold text-amber-300">{fmt(totalHeatLoss, 1)} W/K</td>
+                    <tr className="border-t-2 border-gray-300">
+                      <td colSpan={6} className="pt-1.5 pl-1 text-xs text-gray-500 font-medium">Total fabric heat loss</td>
+                      <td className="pt-1.5 pr-1 text-right font-bold text-amber-600">{fmt(totalHeatLoss, 1)} W/K</td>
                     </tr>
                   </tfoot>
                 </table>
               </div>
-              <div className="text-xs text-slate-600 mt-1">
+              <div className="text-xs text-gray-400 mt-1">
                 A<sub>g</sub>=gross · A<sub>op</sub>=openings · A<sub>n</sub>=net · U=W/m²K · H=heat loss<br />
                 U-values are defaults — assign constructions to refine.
               </div>

@@ -23,12 +23,12 @@ function ExtrudedRoom({ story, isActive }: { story: Story; isActive: boolean }) 
   return (
     <mesh geometry={geom} rotation={[-Math.PI / 2, 0, 0]} position={[0, story.startHeight, 0]}>
       <meshStandardMaterial
-        color={isActive ? '#1e40af' : '#334155'}
-        opacity={isActive ? 0.55 : 0.35}
+        color={isActive ? '#2563eb' : '#64748b'}
+        opacity={isActive ? 0.3 : 0.15}
         transparent
         side={THREE.DoubleSide}
       />
-      <Edges color={isActive ? '#60a5fa' : '#475569'} lineWidth={isActive ? 1.5 : 1} />
+      <Edges color={isActive ? '#3b82f6' : '#94a3b8'} lineWidth={isActive ? 1.5 : 1} />
     </mesh>
   )
 }
@@ -55,7 +55,7 @@ function WallMesh({ wall, storyHeight, startHeight, isActive }: {
   return (
     <mesh position={position} rotation={[0, -rotation, 0]}>
       <boxGeometry args={[length, storyHeight, 0.15]} />
-      <meshStandardMaterial color={isActive ? '#3b82f6' : '#475569'} opacity={isActive ? 0.8 : 0.4} transparent={!isActive} />
+      <meshStandardMaterial color={isActive ? '#3b82f6' : '#94a3b8'} opacity={isActive ? 0.8 : 0.4} transparent={!isActive} />
     </mesh>
   )
 }
@@ -78,7 +78,7 @@ function FloorSlab({ story }: { story: Story }) {
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, story.startHeight + 0.01, 0]}>
       <shapeGeometry args={[shape]} />
-      <meshStandardMaterial color="#0f172a" opacity={0.9} transparent side={THREE.DoubleSide} />
+      <meshStandardMaterial color="#e2e8f0" opacity={0.9} transparent side={THREE.DoubleSide} />
     </mesh>
   )
 }
@@ -224,8 +224,8 @@ function RoofMesh({ pts, eaveY, cfg }: { pts: Point2D[]; eaveY: number; cfg: Roo
         const geom = faceToGeometry(face.verts)
         return (
           <mesh key={i} geometry={geom}>
-            <meshStandardMaterial color="#7c3aed" opacity={0.7} transparent side={THREE.DoubleSide} />
-            <Edges color="#a78bfa" lineWidth={1} />
+            <meshStandardMaterial color="#475569" opacity={0.5} transparent side={THREE.DoubleSide} />
+            <Edges color="#94a3b8" lineWidth={1} />
           </mesh>
         )
       })}
@@ -273,7 +273,7 @@ function OpeningMeshes({ story }: { story: Story }) {
         rotation: [0, -angle, 0] as [number, number, number],
         width: op.width,
         height: op.height,
-        color: op.type === 'window' ? '#7dd3fc' : '#fbbf24',
+        color: op.type === 'window' ? '#38bdf8' : '#f59e0b',
       }]
     })
   }, [story])
@@ -304,17 +304,17 @@ function Scene() {
 
   return (
     <>
-      <ambientLight intensity={0.6} />
-      <directionalLight position={[10, 20, 10]} intensity={1.2} castShadow />
-      <directionalLight position={[-8, 10, -8]} intensity={0.4} />
+      <ambientLight intensity={0.8} />
+      <directionalLight position={[10, 20, 10]} intensity={1.0} castShadow />
+      <directionalLight position={[-8, 10, -8]} intensity={0.3} />
       <Grid
         args={[40, 40]}
         cellSize={1}
         cellThickness={0.5}
-        cellColor="#1e293b"
+        cellColor="#cbd5e1"
         sectionSize={5}
         sectionThickness={1}
-        sectionColor="#334155"
+        sectionColor="#94a3b8"
         fadeDistance={60}
         position={[0, -0.01, 0]}
       />
@@ -361,10 +361,10 @@ function Scene() {
 export default function ThreeDPreview({ className }: { className?: string }) {
   return (
     <div
-      className={`rounded-lg border border-slate-700 overflow-hidden ${className ?? ''}`}
-      style={{ background: '#0f172a' }}
+      className={`rounded-xl border border-gray-200 overflow-hidden shadow-sm ${className ?? ''}`}
+      style={{ background: '#f1f5f9' }}
     >
-      <Canvas camera={{ position: [12, 10, 12], fov: 50 }} shadows style={{ height: '100%' }}>
+      <Canvas camera={{ position: [12, 10, 12], fov: 50 }} shadows style={{ height: '100%', background: '#f1f5f9' }}>
         <Scene />
         <OrbitControls makeDefault />
       </Canvas>
