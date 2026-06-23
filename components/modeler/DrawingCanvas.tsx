@@ -54,7 +54,7 @@ export default function DrawingCanvas({ className }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const lengthInputRef = useRef<HTMLInputElement>(null)
 
-  const { stories, activeStoryId, drawingTool, gridSizeM, addWall, clearWalls, setFootprint } =
+  const { stories, activeStoryId, drawingTool, gridSizeM, addWall, clearWalls, setFootprint, closePolygon } =
     useModelerStore()
   const activeStory = stories.find((s) => s.id === activeStoryId)
 
@@ -270,6 +270,21 @@ export default function DrawingCanvas({ className }: Props) {
             ctx.font = `${Math.min(11, zoom * 0.4)}px monospace`
             ctx.fillText(`${len.toFixed(2)}m`, mid.x + 3, mid.y - 3)
           }
+          // Draw openings on this wall as coloured tick marks
+          if (len > 0.01) {
+            const wallOpenings = story.openings.filter(o => o.wallId === w.id)
+            for (const op of wallOpenings) {
+              const u0 = op.uOffset
+              const u1 = Math.min(1, op.uOffset + op.width / len)
+              const pa = { x: a.x + (b.x - a.x) * u0, y: a.y + (b.y - a.y) * u0 }
+              const pb = { x: a.x + (b.x - a.x) * u1, y: a.y + (b.y - a.y) * u1 }
+              ctx.strokeStyle = op.type === 'window' ? '#7dd3fc' : '#fbbf24'
+              ctx.lineWidth = 4
+              ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke()
+              ctx.lineWidth = isActive ? 2.5 : 1
+              ctx.strokeStyle = isActive ? '#60a5fa' : '#374151'
+            }
+          }
         }
       }
 
@@ -425,7 +440,7 @@ export default function DrawingCanvas({ className }: Props) {
       if (polyPoints.length >= 3) {
         const fp = polyPoints[0]
         if (Math.sqrt((pt.x - fp.x) ** 2 + (pt.y - fp.y) ** 2) < gridSizeM * 1.5) {
-          setFootprint(activeStoryId, polyPoints)
+          closePolygon(activeStoryId, polyPoints)
           setPolyPoints([])
           return
         }
@@ -465,7 +480,7 @@ export default function DrawingCanvas({ className }: Props) {
   function handleDoubleClick() {
     if (drawingTool === 'wall') { setPendingStart(null); setWallChain([]); setKbLength(''); setKbDir(null) }
     if (drawingTool === 'polygon' && polyPoints.length >= 3 && activeStoryId) {
-      setFootprint(activeStoryId, polyPoints)
+      closePolygon(activeStoryId, polyPoints)
       setPolyPoints([])
     }
   }
@@ -625,13 +640,21 @@ export default function DrawingCanvas({ className }: Props) {
       {/* Bottom bar */}
       <div className="flex gap-2 items-center">
         <button
-          onClick={() => activeStoryId && clearWalls(activeStoryId)}
+          onClick={() => {
+            if (activeStoryId && window.confirm('Clear this storey and start over? This will remove all walls and openings.')) {
+              clearWalls(activeStoryId)
+              setPendingStart(null)
+              setWallChain([])
+              setKbLength('')
+              setKbDir(null)
+            }
+          }}
           className="text-xs px-3 py-1 rounded bg-red-900/40 text-red-300 hover:bg-red-800/60 border border-red-800/40"
         >
-          Clear Layer
+          ↺ Clear storey
         </button>
         <span className="text-xs text-slate-600">
-          Scroll to zoom • Alt+drag or middle-mouse to pan • Right-click to cancel
+          Scroll to zoom • Alt+drag or middle-mouse to pan • Right-click to undo
         </span>
       </div>
     </div>

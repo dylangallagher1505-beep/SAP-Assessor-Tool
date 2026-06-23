@@ -9,11 +9,7 @@ const tools: { id: DrawingTool; label: string; icon: React.ReactNode }[] = [
 ]
 
 export default function Toolbar() {
-  const { drawingTool, setDrawingTool, gridSizeM, updateStory, stories } = useModelerStore()
-
-  // Grid size is a store field — expose a quick setter via store's own setter
-  // (We store gridSizeM directly; use a workaround via the store's set)
-  const store = useModelerStore()
+  const { drawingTool, setDrawingTool, gridSizeM } = useModelerStore()
 
   return (
     <div className="flex items-center gap-3 px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm">

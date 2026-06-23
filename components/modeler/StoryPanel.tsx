@@ -119,17 +119,19 @@ export default function StoryPanel() {
 
       {/* Roof Section */}
       <div className="border-t border-slate-700 pt-3">
-        <button
-          className="flex items-center gap-1 font-semibold text-slate-200 w-full"
-          onClick={() => setRoofOpen((v) => !v)}
-        >
-          {roofOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          Roof
-          <label className="ml-auto flex items-center gap-1 text-xs text-slate-400 font-normal cursor-pointer" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center">
+          <button
+            className="flex items-center gap-1 font-semibold text-slate-200 flex-1"
+            onClick={() => setRoofOpen((v) => !v)}
+          >
+            {roofOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            Roof
+          </button>
+          <label className="flex items-center gap-1 text-xs text-slate-400 cursor-pointer">
             <input type="checkbox" checked={showRoof} onChange={(e) => setShowRoof(e.target.checked)} />
             Show
           </label>
-        </button>
+        </div>
 
         {roofOpen && (
           <div className="mt-2 flex flex-col gap-2 text-xs">

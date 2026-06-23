@@ -86,6 +86,8 @@ interface ModelerState {
   removeWall: (storyId: string, wallId: string) => void
   clearWalls: (storyId: string) => void
   setFootprint: (storyId: string, polygon: Point2D[]) => void
+  // Close a polygon: sets footprint AND generates one Wall per edge (enables openings)
+  closePolygon: (storyId: string, polygon: Point2D[]) => void
   copyFootprintTo: (fromStoryId: string, toStoryId: string) => void
 
   // Openings
@@ -181,6 +183,19 @@ export const useModelerStore = create<ModelerState>((set) => ({
       stories: s.stories.map((st) =>
         st.id === storyId ? { ...st, footprintPolygon: polygon } : st
       ),
+    })),
+
+  closePolygon: (storyId, polygon) =>
+    set((s) => ({
+      stories: s.stories.map((st) => {
+        if (st.id !== storyId) return st
+        const walls: Wall[] = polygon.map((pt, i) => ({
+          id: uid(),
+          start: pt,
+          end: polygon[(i + 1) % polygon.length],
+        }))
+        return { ...st, footprintPolygon: polygon, walls, openings: [] }
+      }),
     })),
 
   copyFootprintTo: (fromStoryId, toStoryId) =>
