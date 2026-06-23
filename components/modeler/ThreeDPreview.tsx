@@ -1,71 +1,96 @@
 'use client'
 import { Canvas } from '@react-three/fiber'
-import { OrbitControls, Grid } from '@react-three/drei'
+import { OrbitControls, Grid, Edges } from '@react-three/drei'
 import * as THREE from 'three'
 import { useMemo } from 'react'
 import { useModelerStore, Story, Wall, Point2D } from '@/lib/modelerStore'
 
-// ─── Wall box ────────────────────────────────────────────────────────────────
+// ─── Extruded Room (solid box from footprint polygon) ─────────────────────────
+
+function ExtrudedRoom({ story, isActive }: { story: Story; isActive: boolean }) {
+  const geom = useMemo(() => {
+    const pts = story.footprintPolygon
+    if (pts.length < 3) return null
+    const shape = new THREE.Shape()
+    shape.moveTo(pts[0].x, pts[0].y)
+    for (let i = 1; i < pts.length; i++) shape.lineTo(pts[i].x, pts[i].y)
+    shape.closePath()
+    return new THREE.ExtrudeGeometry(shape, {
+      depth: story.storyHeight,
+      bevelEnabled: false,
+    })
+  }, [story.footprintPolygon, story.storyHeight])
+
+  if (!geom) return null
+
+  return (
+    // ExtrudeGeometry extrudes along Z; rotate -90° around X so it extrudes upward (Y)
+    <mesh
+      geometry={geom}
+      rotation={[-Math.PI / 2, 0, 0]}
+      position={[0, story.startHeight, 0]}
+    >
+      <meshStandardMaterial
+        color={isActive ? '#1e40af' : '#334155'}
+        opacity={isActive ? 0.55 : 0.35}
+        transparent
+        side={THREE.DoubleSide}
+      />
+      <Edges color={isActive ? '#60a5fa' : '#475569'} lineWidth={isActive ? 1.5 : 1} />
+    </mesh>
+  )
+}
+
+// ─── In-progress wall sticks (shown while drawing before shape is closed) ─────
 
 function WallMesh({ wall, storyHeight, startHeight, isActive }: {
-  wall: Wall
-  storyHeight: number
-  startHeight: number
-  isActive: boolean
+  wall: Wall; storyHeight: number; startHeight: number; isActive: boolean
 }) {
   const { position, rotation, length } = useMemo(() => {
     const dx = wall.end.x - wall.start.x
     const dy = wall.end.y - wall.start.y
     const length = Math.sqrt(dx * dx + dy * dy)
     const angle = Math.atan2(dy, dx)
-    const midX = (wall.start.x + wall.end.x) / 2
-    const midY = (wall.start.y + wall.end.y) / 2
     return {
       length,
       rotation: angle,
-      position: [midX, startHeight + storyHeight / 2, midY] as [number, number, number],
+      position: [(wall.start.x + wall.end.x) / 2, startHeight + storyHeight / 2, (wall.start.y + wall.end.y) / 2] as [number, number, number],
     }
   }, [wall, startHeight, storyHeight])
 
   if (length < 0.01) return null
-  const WALL_THICKNESS = 0.2
 
   return (
     <mesh position={position} rotation={[0, -rotation, 0]}>
-      <boxGeometry args={[length, storyHeight, WALL_THICKNESS]} />
+      <boxGeometry args={[length, storyHeight, 0.15]} />
       <meshStandardMaterial
-        color={isActive ? '#3b82f6' : '#64748b'}
-        opacity={isActive ? 1 : 0.6}
+        color={isActive ? '#3b82f6' : '#475569'}
+        opacity={isActive ? 0.8 : 0.4}
         transparent={!isActive}
       />
     </mesh>
   )
 }
 
-// ─── Floor slab ───────────────────────────────────────────────────────────────
+// ─── Floor slab label ─────────────────────────────────────────────────────────
 
 function FloorSlab({ story }: { story: Story }) {
+  const pts = story.footprintPolygon.length >= 3 ? story.footprintPolygon : wallsToConvexHull(story.walls)
   const shape = useMemo(() => {
-    const pts = story.footprintPolygon.length >= 3
-      ? story.footprintPolygon
-      : wallsToConvexHull(story.walls)
     if (pts.length < 3) return null
-    const shape = new THREE.Shape()
-    shape.moveTo(pts[0].x, pts[0].y)
-    for (let i = 1; i < pts.length; i++) shape.lineTo(pts[i].x, pts[i].y)
-    shape.closePath()
-    return shape
-  }, [story])
+    const s = new THREE.Shape()
+    s.moveTo(pts[0].x, pts[0].y)
+    for (let i = 1; i < pts.length; i++) s.lineTo(pts[i].x, pts[i].y)
+    s.closePath()
+    return s
+  }, [pts])
 
   if (!shape) return null
 
   return (
-    <mesh
-      rotation={[-Math.PI / 2, 0, 0]}
-      position={[0, story.startHeight, 0]}
-    >
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, story.startHeight + 0.01, 0]}>
       <shapeGeometry args={[shape]} />
-      <meshStandardMaterial color="#1e3a5f" opacity={0.7} transparent side={THREE.DoubleSide} />
+      <meshStandardMaterial color="#0f172a" opacity={0.9} transparent side={THREE.DoubleSide} />
     </mesh>
   )
 }
@@ -87,34 +112,51 @@ function Scene() {
 
   return (
     <>
-      <ambientLight intensity={0.5} />
-      <directionalLight position={[10, 20, 10]} intensity={1} castShadow />
+      <ambientLight intensity={0.6} />
+      <directionalLight position={[10, 20, 10]} intensity={1.2} castShadow />
+      <directionalLight position={[-8, 10, -8]} intensity={0.4} />
       <Grid
         args={[40, 40]}
         cellSize={1}
         cellThickness={0.5}
-        cellColor="#334155"
+        cellColor="#1e293b"
         sectionSize={5}
         sectionThickness={1}
-        sectionColor="#475569"
-        fadeDistance={50}
+        sectionColor="#334155"
+        fadeDistance={60}
         position={[0, -0.01, 0]}
       />
 
-      {stories.map((story) => (
-        <group key={story.id}>
-          <FloorSlab story={story} />
-          {story.walls.map((wall) => (
-            <WallMesh
-              key={wall.id}
-              wall={wall}
-              storyHeight={story.storyHeight}
-              startHeight={story.startHeight}
-              isActive={story.id === activeStoryId}
-            />
-          ))}
-        </group>
-      ))}
+      {stories.map((story) => {
+        const isActive = story.id === activeStoryId
+        const hasClosedRoom = story.footprintPolygon.length >= 3
+
+        return (
+          <group key={story.id}>
+            {hasClosedRoom ? (
+              // Closed room: show solid extruded volume
+              <>
+                <ExtrudedRoom story={story} isActive={isActive} />
+                <FloorSlab story={story} />
+              </>
+            ) : (
+              // In-progress: show individual wall sticks
+              <>
+                <FloorSlab story={story} />
+                {story.walls.map((wall) => (
+                  <WallMesh
+                    key={wall.id}
+                    wall={wall}
+                    storyHeight={story.storyHeight}
+                    startHeight={story.startHeight}
+                    isActive={isActive}
+                  />
+                ))}
+              </>
+            )}
+          </group>
+        )
+      })}
     </>
   )
 }
@@ -123,13 +165,11 @@ function Scene() {
 
 export default function ThreeDPreview({ className }: { className?: string }) {
   return (
-    <div className={`rounded-lg border border-slate-700 overflow-hidden ${className ?? ''}`}
-         style={{ background: '#0f172a' }}>
-      <Canvas
-        camera={{ position: [15, 12, 15], fov: 50 }}
-        shadows
-        style={{ height: '100%' }}
-      >
+    <div
+      className={`rounded-lg border border-slate-700 overflow-hidden ${className ?? ''}`}
+      style={{ background: '#0f172a' }}
+    >
+      <Canvas camera={{ position: [12, 10, 12], fov: 50 }} shadows style={{ height: '100%' }}>
         <Scene />
         <OrbitControls makeDefault />
       </Canvas>
