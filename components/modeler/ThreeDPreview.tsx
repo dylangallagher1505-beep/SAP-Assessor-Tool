@@ -3,9 +3,9 @@ import { Canvas } from '@react-three/fiber'
 import { OrbitControls, Grid, Edges } from '@react-three/drei'
 import * as THREE from 'three'
 import { useMemo } from 'react'
-import { useModelerStore, Story, Wall, Point2D } from '@/lib/modelerStore'
+import { useModelerStore, Story, Wall, Point2D, RoofConfig } from '@/lib/modelerStore'
 
-// ─── Extruded Room (solid box from footprint polygon) ─────────────────────────
+// ─── Extruded Room ────────────────────────────────────────────────────────────
 
 function ExtrudedRoom({ story, isActive }: { story: Story; isActive: boolean }) {
   const geom = useMemo(() => {
@@ -15,21 +15,13 @@ function ExtrudedRoom({ story, isActive }: { story: Story; isActive: boolean }) 
     shape.moveTo(pts[0].x, pts[0].y)
     for (let i = 1; i < pts.length; i++) shape.lineTo(pts[i].x, pts[i].y)
     shape.closePath()
-    return new THREE.ExtrudeGeometry(shape, {
-      depth: story.storyHeight,
-      bevelEnabled: false,
-    })
+    return new THREE.ExtrudeGeometry(shape, { depth: story.storyHeight, bevelEnabled: false })
   }, [story.footprintPolygon, story.storyHeight])
 
   if (!geom) return null
 
   return (
-    // ExtrudeGeometry extrudes along Z; rotate -90° around X so it extrudes upward (Y)
-    <mesh
-      geometry={geom}
-      rotation={[-Math.PI / 2, 0, 0]}
-      position={[0, story.startHeight, 0]}
-    >
+    <mesh geometry={geom} rotation={[-Math.PI / 2, 0, 0]} position={[0, story.startHeight, 0]}>
       <meshStandardMaterial
         color={isActive ? '#1e40af' : '#334155'}
         opacity={isActive ? 0.55 : 0.35}
@@ -41,7 +33,7 @@ function ExtrudedRoom({ story, isActive }: { story: Story; isActive: boolean }) 
   )
 }
 
-// ─── In-progress wall sticks (shown while drawing before shape is closed) ─────
+// ─── In-progress wall sticks ──────────────────────────────────────────────────
 
 function WallMesh({ wall, storyHeight, startHeight, isActive }: {
   wall: Wall; storyHeight: number; startHeight: number; isActive: boolean
@@ -63,16 +55,12 @@ function WallMesh({ wall, storyHeight, startHeight, isActive }: {
   return (
     <mesh position={position} rotation={[0, -rotation, 0]}>
       <boxGeometry args={[length, storyHeight, 0.15]} />
-      <meshStandardMaterial
-        color={isActive ? '#3b82f6' : '#475569'}
-        opacity={isActive ? 0.8 : 0.4}
-        transparent={!isActive}
-      />
+      <meshStandardMaterial color={isActive ? '#3b82f6' : '#475569'} opacity={isActive ? 0.8 : 0.4} transparent={!isActive} />
     </mesh>
   )
 }
 
-// ─── Floor slab label ─────────────────────────────────────────────────────────
+// ─── Floor slab ───────────────────────────────────────────────────────────────
 
 function FloorSlab({ story }: { story: Story }) {
   const pts = story.footprintPolygon.length >= 3 ? story.footprintPolygon : wallsToConvexHull(story.walls)
@@ -95,6 +83,156 @@ function FloorSlab({ story }: { story: Story }) {
   )
 }
 
+// ─── Roof generator ───────────────────────────────────────────────────────────
+
+/** Each plane = array of coplanar [x,y,z] vertices (triangle-fan from v[0]) */
+type RoofFace = { verts: [number, number, number][]; label: string }
+
+function buildRoofFaces(pts: Point2D[], eaveY: number, cfg: RoofConfig): RoofFace[] {
+  if (pts.length < 3) return []
+
+  const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y)
+  const minX = Math.min(...xs), maxX = Math.max(...xs)
+  const minY = Math.min(...ys), maxY = Math.max(...ys)
+  const w = maxX - minX   // east-west span
+  const d = maxY - minY   // north-south span
+  const cx = (minX + maxX) / 2
+  const cy = (minY + maxY) / 2
+  const pitchRad = (cfg.pitchDegrees * Math.PI) / 180
+  const rise = (Math.min(w, d) / 2) * Math.tan(pitchRad)
+
+  if (cfg.type === 'flat') {
+    const verts = pts.map((p) => [p.x, eaveY + 0.05, p.y] as [number, number, number])
+    return [{ verts, label: 'Flat Roof' }]
+  }
+
+  if (cfg.type === 'shed') {
+    // Single slope: low eave at minY, high at maxY
+    const highY = eaveY + d * Math.tan(pitchRad)
+    return [{
+      label: 'Shed',
+      verts: [
+        [minX, eaveY, minY],
+        [maxX, eaveY, minY],
+        [maxX, highY,  maxY],
+        [minX, highY,  maxY],
+      ],
+    }]
+  }
+
+  if (cfg.type === 'gable') {
+    const ridgeY = eaveY + rise
+    // Ridge runs east-west at centre (N-S midpoint)
+    return [
+      {
+        label: 'Front Slope',
+        verts: [
+          [minX, eaveY, minY],
+          [maxX, eaveY, minY],
+          [maxX, ridgeY, cy],
+          [minX, ridgeY, cy],
+        ],
+      },
+      {
+        label: 'Rear Slope',
+        verts: [
+          [maxX, eaveY, maxY],
+          [minX, eaveY, maxY],
+          [minX, ridgeY, cy],
+          [maxX, ridgeY, cy],
+        ],
+      },
+      {
+        label: 'Gable West',
+        verts: [
+          [minX, eaveY, minY],
+          [minX, ridgeY, cy],
+          [minX, eaveY, maxY],
+        ],
+      },
+      {
+        label: 'Gable East',
+        verts: [
+          [maxX, eaveY, maxY],
+          [maxX, ridgeY, cy],
+          [maxX, eaveY, minY],
+        ],
+      },
+    ]
+  }
+
+  if (cfg.type === 'hip') {
+    const ridgeY = eaveY + rise
+    // Ridge runs E-W; hip ends taper to a point
+    const hipOffsetX = (d / 2) // how far ridge is inset from E/W ends
+    const ridgeMinX = minX + hipOffsetX
+    const ridgeMaxX = maxX - hipOffsetX
+    if (ridgeMinX >= ridgeMaxX) {
+      // Square plan — hip meets at a point (pyramid)
+      return [
+        { label: 'Hip South', verts: [[minX, eaveY, minY], [maxX, eaveY, minY], [cx, ridgeY, cy]] },
+        { label: 'Hip North', verts: [[maxX, eaveY, maxY], [minX, eaveY, maxY], [cx, ridgeY, cy]] },
+        { label: 'Hip East',  verts: [[maxX, eaveY, minY], [maxX, eaveY, maxY], [cx, ridgeY, cy]] },
+        { label: 'Hip West',  verts: [[minX, eaveY, maxY], [minX, eaveY, minY], [cx, ridgeY, cy]] },
+      ]
+    }
+    return [
+      {
+        label: 'Hip Front',
+        verts: [
+          [minX, eaveY, minY],
+          [maxX, eaveY, minY],
+          [ridgeMaxX, ridgeY, cy],
+          [ridgeMinX, ridgeY, cy],
+        ],
+      },
+      {
+        label: 'Hip Rear',
+        verts: [
+          [maxX, eaveY, maxY],
+          [minX, eaveY, maxY],
+          [ridgeMinX, ridgeY, cy],
+          [ridgeMaxX, ridgeY, cy],
+        ],
+      },
+      { label: 'Hip End W', verts: [[minX, eaveY, maxY], [minX, eaveY, minY], [ridgeMinX, ridgeY, cy]] },
+      { label: 'Hip End E', verts: [[maxX, eaveY, minY], [maxX, eaveY, maxY], [ridgeMaxX, ridgeY, cy]] },
+    ]
+  }
+
+  return []
+}
+
+function faceToGeometry(verts: [number, number, number][]): THREE.BufferGeometry {
+  const geom = new THREE.BufferGeometry()
+  // Fan triangulation from verts[0]
+  const positions: number[] = []
+  for (let i = 1; i < verts.length - 1; i++) {
+    positions.push(...verts[0], ...verts[i], ...verts[i + 1])
+  }
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  geom.computeVertexNormals()
+  return geom
+}
+
+function RoofMesh({ pts, eaveY, cfg }: { pts: Point2D[]; eaveY: number; cfg: RoofConfig }) {
+  const faces = useMemo(() => buildRoofFaces(pts, eaveY, cfg), [pts, eaveY, cfg])
+
+  return (
+    <>
+      {faces.map((face, i) => {
+        const geom = faceToGeometry(face.verts)
+        return (
+          <mesh key={i} geometry={geom}>
+            <meshStandardMaterial color="#7c3aed" opacity={0.7} transparent side={THREE.DoubleSide} />
+            <Edges color="#a78bfa" lineWidth={1} />
+          </mesh>
+        )
+      })}
+    </>
+  )
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function wallsToConvexHull(walls: Wall[]): Point2D[] {
@@ -108,7 +246,14 @@ function wallsToConvexHull(walls: Wall[]): Point2D[] {
 // ─── Scene ────────────────────────────────────────────────────────────────────
 
 function Scene() {
-  const { stories, activeStoryId } = useModelerStore()
+  const { stories, activeStoryId, roofConfig, showRoof } = useModelerStore()
+
+  // Roof sits on top of the highest storey
+  const topStory = stories.length > 0 ? stories[stories.length - 1] : null
+  const roofEaveY = topStory ? topStory.startHeight + topStory.storyHeight : 0
+  const roofFootprint = topStory?.footprintPolygon.length ?? 0 >= 3
+    ? topStory!.footprintPolygon
+    : topStory ? wallsToConvexHull(topStory.walls) : []
 
   return (
     <>
@@ -134,13 +279,11 @@ function Scene() {
         return (
           <group key={story.id}>
             {hasClosedRoom ? (
-              // Closed room: show solid extruded volume
               <>
                 <ExtrudedRoom story={story} isActive={isActive} />
                 <FloorSlab story={story} />
               </>
             ) : (
-              // In-progress: show individual wall sticks
               <>
                 <FloorSlab story={story} />
                 {story.walls.map((wall) => (
@@ -157,6 +300,10 @@ function Scene() {
           </group>
         )
       })}
+
+      {showRoof && roofFootprint.length >= 3 && (
+        <RoofMesh pts={roofFootprint} eaveY={roofEaveY} cfg={roofConfig} />
+      )}
     </>
   )
 }
