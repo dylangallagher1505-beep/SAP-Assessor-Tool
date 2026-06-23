@@ -1,10 +1,19 @@
 'use client'
-import { PlusCircle, Trash2, ChevronDown, ChevronRight } from 'lucide-react'
+import { PlusCircle, Trash2, ChevronDown, ChevronRight, Copy } from 'lucide-react'
 import { useState } from 'react'
 import { useModelerStore } from '@/lib/modelerStore'
 
+function shoelaceArea(pts: { x: number; y: number }[]): number {
+  let a = 0
+  for (let i = 0; i < pts.length; i++) {
+    const j = (i + 1) % pts.length
+    a += pts[i].x * pts[j].y - pts[j].x * pts[i].y
+  }
+  return Math.abs(a) / 2
+}
+
 export default function StoryPanel() {
-  const { stories, activeStoryId, addStory, removeStory, updateStory, setActiveStory, roofConfig, updateRoof, showRoof, setShowRoof } =
+  const { stories, activeStoryId, addStory, removeStory, updateStory, setActiveStory, copyFootprintTo, roofConfig, updateRoof, showRoof, setShowRoof } =
     useModelerStore()
   const [roofOpen, setRoofOpen] = useState(true)
 
@@ -73,9 +82,21 @@ export default function StoryPanel() {
                 />
               </div>
 
-              <div className="mt-1.5 text-xs text-slate-500">
-                {story.walls.length} walls
-                {story.footprintPolygon.length >= 3 && ' · polygon defined'}
+              <div className="mt-1.5 text-xs text-slate-500 flex items-center justify-between">
+                <span>
+                  {story.footprintPolygon.length >= 3
+                    ? `${shoelaceArea(story.footprintPolygon).toFixed(1)} m²`
+                    : `${story.walls.length} walls`}
+                </span>
+                {story.footprintPolygon.length >= 3 && i < stories.length - 1 && (
+                  <button
+                    title="Copy footprint to next storey"
+                    onClick={(e) => { e.stopPropagation(); copyFootprintTo(story.id, stories[i + 1].id) }}
+                    className="flex items-center gap-0.5 text-blue-400 hover:text-blue-300"
+                  >
+                    <Copy size={10} /> copy up
+                  </button>
+                )}
               </div>
             </div>
           )
