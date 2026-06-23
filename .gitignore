@@ -17,3 +17,4 @@ tsconfig.tsbuildinfo
 # Misc
 .DS_Store
 *.log
+.claude/
