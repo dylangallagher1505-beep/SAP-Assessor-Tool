@@ -256,12 +256,15 @@ function OpeningMeshes({ story }: { story: Story }) {
       if (wallLen < 0.01) return []
 
       const dirX = dx / wallLen, dirZ = dz / wallLen
-      // Opening centre in world space
+      // Outward normal (perpendicular to wall direction in XZ plane)
+      const normX = dirZ, normZ = -dirX
+      const OFFSET = 0.08  // push plane slightly outward to avoid z-fighting
+
       const uCentre = op.uOffset * wallLen + op.width / 2
       const vCentre = story.startHeight + (op.type === 'door' ? op.height / 2 : op.sillHeight + op.height / 2)
 
-      const cx = wall.start.x + dirX * uCentre
-      const cz = wall.start.y + dirZ * uCentre
+      const cx = wall.start.x + dirX * uCentre + normX * OFFSET
+      const cz = wall.start.y + dirZ * uCentre + normZ * OFFSET
       const angle = Math.atan2(dz, dx)
 
       return [{

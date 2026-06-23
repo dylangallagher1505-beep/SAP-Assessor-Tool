@@ -15,8 +15,8 @@ export default function ModelerApp() {
 
       {/* Main layout */}
       <div className="flex flex-1 gap-3 p-3 min-h-0">
-        {/* Left: Stories + Roof */}
-        <div className="w-48 shrink-0">
+        {/* Left: Stories + Roof + Openings */}
+        <div className="w-64 shrink-0">
           <StoryPanel />
         </div>
 
