@@ -9,15 +9,11 @@ const tools: { id: DrawingTool; label: string; icon: React.ReactNode }[] = [
 ]
 
 export default function Toolbar() {
-  const { drawingTool, setDrawingTool, gridSizeM, updateStory, stories } = useModelerStore()
-
-  // Grid size is a store field — expose a quick setter via store's own setter
-  // (We store gridSizeM directly; use a workaround via the store's set)
-  const store = useModelerStore()
+  const { drawingTool, setDrawingTool, gridSizeM } = useModelerStore()
 
   return (
-    <div className="flex items-center gap-3 px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm">
-      <span className="text-slate-500 text-xs font-medium mr-1">Tool</span>
+    <div className="flex items-center gap-3 px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm shadow-sm">
+      <span className="text-gray-500 text-xs font-medium mr-1">Tool</span>
       {tools.map((t) => (
         <button
           key={t.id}
@@ -25,22 +21,22 @@ export default function Toolbar() {
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
             drawingTool === t.id
               ? 'bg-blue-600 text-white'
-              : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+              : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
           }`}
         >
           {t.icon} {t.label}
         </button>
       ))}
 
-      <div className="ml-auto flex items-center gap-2 text-xs text-slate-400">
+      <div className="ml-auto flex items-center gap-2 text-xs text-gray-500">
         <span>Grid</span>
         {[0.25, 0.5, 1].map((g) => (
           <button
             key={g}
             // @ts-ignore – accessing store's internal set directly
             onClick={() => useModelerStore.setState({ gridSizeM: g })}
-            className={`px-2 py-1 rounded text-xs ${
-              gridSizeM === g ? 'bg-slate-600 text-white' : 'bg-slate-800 text-slate-500 hover:bg-slate-700'
+            className={`px-2 py-1 rounded text-xs border ${
+              gridSizeM === g ? 'bg-blue-50 border-blue-400 text-blue-700' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
             }`}
           >
             {g}m
