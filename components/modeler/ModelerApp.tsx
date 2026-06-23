@@ -1,0 +1,46 @@
+'use client'
+import DrawingCanvas from './DrawingCanvas'
+import ThreeDPreview from './ThreeDPreview'
+import StoryPanel from './StoryPanel'
+import TakeoffPanel from './TakeoffPanel'
+import Toolbar from './Toolbar'
+
+export default function ModelerApp() {
+  return (
+    <div className="flex flex-col h-screen bg-slate-950 text-slate-100 overflow-hidden">
+      {/* Header */}
+      <header className="flex items-center gap-3 px-4 py-2 border-b border-slate-800 shrink-0">
+        <div className="text-blue-400 font-bold text-sm tracking-wide">3D Building Modeler</div>
+        <span className="text-slate-600 text-xs">Construction Takeoff & Estimating</span>
+      </header>
+
+      {/* Toolbar */}
+      <div className="px-3 pt-2 shrink-0">
+        <Toolbar />
+      </div>
+
+      {/* Main layout */}
+      <div className="flex flex-1 gap-3 p-3 min-h-0">
+        {/* Left: Stories + Roof */}
+        <div className="w-48 shrink-0">
+          <StoryPanel />
+        </div>
+
+        {/* Centre: 2D Canvas */}
+        <div className="flex-1 min-w-0 flex flex-col">
+          <DrawingCanvas className="flex-1" />
+        </div>
+
+        {/* Right: 3D Preview */}
+        <div className="flex-1 min-w-0 flex flex-col gap-3">
+          <ThreeDPreview className="flex-1" />
+        </div>
+
+        {/* Far right: Takeoff */}
+        <div className="w-52 shrink-0">
+          <TakeoffPanel />
+        </div>
+      </div>
+    </div>
+  )
+}
