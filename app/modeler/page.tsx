@@ -1,6 +1,7 @@
+'use client'
 import dynamic from 'next/dynamic'
 
-// All three-d components must be client-only (no SSR)
+// ssr: false required here — R3F and canvas APIs are browser-only
 const ModelerApp = dynamic(() => import('@/components/modeler/ModelerApp'), { ssr: false })
 
 export default function ModelerPage() {
