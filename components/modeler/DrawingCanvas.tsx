@@ -273,7 +273,31 @@ export default function DrawingCanvas({ className }: Props) {
         }
       }
 
-      if (isActive && story.footprintPolygon.length >= 2) {
+      if (story.footprintPolygon.length >= 3) {
+        // Filled footprint polygon
+        ctx.strokeStyle = isActive ? '#34d399' : '#1d4b35'
+        ctx.fillStyle = isActive ? 'rgba(52,211,153,0.08)' : 'rgba(52,211,153,0.04)'
+        ctx.lineWidth = isActive ? 1.5 : 1
+        ctx.setLineDash(isActive ? [] : [4, 4])
+        ctx.beginPath()
+        const first = worldToCanvas(story.footprintPolygon[0], pan, zoom)
+        ctx.moveTo(first.x, first.y)
+        for (let i = 1; i < story.footprintPolygon.length; i++) {
+          const pt = worldToCanvas(story.footprintPolygon[i], pan, zoom)
+          ctx.lineTo(pt.x, pt.y)
+        }
+        ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.setLineDash([])
+
+        // Room label at centroid
+        const cxW = story.footprintPolygon.reduce((s, p) => s + p.x, 0) / story.footprintPolygon.length
+        const cyW = story.footprintPolygon.reduce((s, p) => s + p.y, 0) / story.footprintPolygon.length
+        const cc = worldToCanvas({ x: cxW, y: cyW }, pan, zoom)
+        ctx.font = `bold ${Math.min(14, zoom * 0.5)}px sans-serif`
+        ctx.textAlign = 'center'
+        ctx.fillStyle = isActive ? 'rgba(52,211,153,0.9)' : 'rgba(52,211,153,0.4)'
+        ctx.fillText(story.name, cc.x, cc.y)
+        ctx.textAlign = 'left'
+      } else if (isActive && story.footprintPolygon.length >= 2) {
         ctx.strokeStyle = '#34d399'
         ctx.lineWidth = 1.5
         ctx.setLineDash([4, 4])
@@ -377,6 +401,8 @@ export default function DrawingCanvas({ className }: Props) {
     const pt = getWorldPos(e)
 
     if (drawingTool === 'wall') {
+      // Block starting a new wall if this storey already has a closed room
+      if (!pendingStart && (activeStory?.footprintPolygon.length ?? 0) >= 3) return
       if (!pendingStart) {
         setPendingStart(pt)
         setKbLength('')

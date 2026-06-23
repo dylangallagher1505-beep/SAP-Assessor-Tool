@@ -48,8 +48,9 @@ export default function TakeoffPanel() {
           <thead>
             <tr className="text-slate-500 border-b border-slate-700">
               <th className="text-left pb-1">Story</th>
-              <th className="text-right pb-1">Floor m²</th>
-              <th className="text-right pb-1">Wall m²</th>
+              <th className="text-right pb-1">Floor</th>
+              <th className="text-right pb-1">Perim</th>
+              <th className="text-right pb-1">Wall</th>
             </tr>
           </thead>
           <tbody>
@@ -57,11 +58,13 @@ export default function TakeoffPanel() {
               <tr key={t.storyId} className="border-b border-slate-800 hover:bg-slate-800/40">
                 <td className="py-1 text-slate-300">{t.storyName}</td>
                 <td className="py-1 text-right text-slate-200">{fmt(t.floorArea)}</td>
+                <td className="py-1 text-right text-slate-400">{fmt(t.wallSurfaceArea / (stories.find(s => s.id === t.storyId)?.storyHeight ?? 2.5))}m</td>
                 <td className="py-1 text-right text-slate-200">{fmt(t.wallSurfaceArea)}</td>
               </tr>
             ))}
           </tbody>
         </table>
+        <div className="text-xs text-slate-600 mt-1">Floor m² · Perimeter m · Wall m²</div>
       </div>
 
       {/* Roof */}
