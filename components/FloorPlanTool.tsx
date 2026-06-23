@@ -57,6 +57,18 @@ function makeStorey(id: number, base: number): StoreyState {
   };
 }
 
+// Defined after applyDir (below) via hoisting — placed here for readability.
+// Resolves actual polygon vertices for a storey in either draw or type mode.
+const TYPE_DRAW_START: Point = { x: 5, y: 5 };
+function resolveStoreyPoints(s: StoreyState): Point[] {
+  if (s.walls.length > 0) {
+    const pts: Point[] = [TYPE_DRAW_START];
+    for (const w of s.walls) pts.push(applyDir(pts[pts.length - 1], w.dir, w.len));
+    return pts;
+  }
+  return s.points;
+}
+
 const WALL_COLOR: Record<WallType, string> = {
   external: '#16a34a',
   party: '#f59e0b',
@@ -256,7 +268,14 @@ const STOREY_COLORS = ['#d4edda', '#c8e6f5', '#fde8c8', '#f0d4f5', '#fde8e8'];
 const STOREY_WIRE   = ['#14532d', '#1e4d7a', '#7a4a1e', '#5a1e7a', '#7a1e1e'];
 
 // ─── 3D Viewer ────────────────────────────────────────────────────────────────
-type StoreyForViewer = Pick<StoreyState, 'id' | 'points' | 'closed' | 'storeyBase' | 'storeyHeight' | 'roofType'>;
+interface StoreyForViewer {
+  id: number;
+  resolvedPoints: Point[];
+  closed: boolean;
+  storeyBase: number;
+  storeyHeight: number;
+  roofType: 'flat' | 'pitched';
+}
 
 function ThreeViewer({
   storeys,
@@ -273,7 +292,7 @@ function ThreeViewer({
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
 
-  const validStoreys = storeys.filter(s => s.closed && s.points.length >= 3);
+  const validStoreys = storeys.filter(s => s.closed && s.resolvedPoints.length >= 3);
 
   useEffect(() => {
     if (!mountRef.current || validStoreys.length === 0) return;
@@ -302,8 +321,8 @@ function ThreeViewer({
 
     // Compute a shared centroid from the ground floor (or first valid storey)
     const ref = validStoreys[0];
-    const cx = ref.points.reduce((s, p) => s + p.x, 0) / ref.points.length;
-    const cy = ref.points.reduce((s, p) => s + p.y, 0) / ref.points.length;
+    const cx = ref.resolvedPoints.reduce((s, p) => s + p.x, 0) / ref.resolvedPoints.length;
+    const cy = ref.resolvedPoints.reduce((s, p) => s + p.y, 0) / ref.resolvedPoints.length;
 
     // Find the topmost storey for the roof
     const topmostStorey = [...validStoreys].sort((a, b) => (b.storeyBase + b.storeyHeight) - (a.storeyBase + a.storeyHeight))[0];
@@ -311,7 +330,7 @@ function ThreeViewer({
     const activeStorey = validStoreys.find(s => s.id === activeStoreyId) ?? topmostStorey;
 
     validStoreys.forEach((storey, si) => {
-      const centred = storey.points.map(p => ({ x: p.x - cx, y: p.y - cy }));
+      const centred = storey.resolvedPoints.map(p => ({ x: p.x - cx, y: p.y - cy }));
       const shape = new THREE.Shape();
       shape.moveTo(centred[0].x, -centred[0].y);
       for (let i = 1; i < centred.length; i++) shape.lineTo(centred[i].x, -centred[i].y);
@@ -365,7 +384,7 @@ function ThreeViewer({
 
       // Roof — only on topmost storey
       if (storey.id === topmostStorey.id) {
-        const topCentred = storey.points.map(p => ({ x: p.x - cx, y: p.y - cy }));
+        const topCentred = storey.resolvedPoints.map(p => ({ x: p.x - cx, y: p.y - cy }));
         const topShape = new THREE.Shape();
         topShape.moveTo(topCentred[0].x, -topCentred[0].y);
         for (let i = 1; i < topCentred.length; i++) topShape.lineTo(topCentred[i].x, -topCentred[i].y);
@@ -422,7 +441,7 @@ function ThreeViewer({
 
       // Storey separator line (slab line between floors)
       if (si > 0) {
-        const edgePts = centred;
+        const edgePts = storey.resolvedPoints.map(p => ({ x: p.x - cx, y: p.y - cy }));
         const linePositions: number[] = [];
         for (let i = 0; i < edgePts.length; i++) {
           const a = edgePts[i];
@@ -661,15 +680,8 @@ export default function FloorPlanTool() {
 
   // ── Total floor area across all storeys ──────────────────────────────────────
   const totalTFA = storeys
-    .filter(s => s.closed && s.points.length >= 3)
-    .reduce((sum, s) => {
-      const pts = s.walls.length > 0 ? (() => {
-        const tp: Point[] = [START];
-        for (const w of s.walls) tp.push(applyDir(tp[tp.length - 1], w.dir, w.len));
-        return tp;
-      })() : s.points;
-      return sum + polygonArea(pts);
-    }, 0);
+    .filter(s => s.closed)
+    .reduce((sum, s) => sum + polygonArea(resolveStoreyPoints(s)), 0);
 
   // ── SVG helpers ──────────────────────────────────────────────────────────────
   const getSVGPoint = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
@@ -1321,7 +1333,7 @@ export default function FloorPlanTool() {
         {/* 3D View */}
         <div className="relative">
           <ThreeViewer
-            storeys={storeys}
+            storeys={storeys.map(s => ({ ...s, resolvedPoints: resolveStoreyPoints(s) }))}
             activeStoreyId={activeStoreyId}
             wallSegs={wallSegs}
             selectedWallIdx={selectedWallIdx}
