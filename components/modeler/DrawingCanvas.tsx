@@ -386,27 +386,29 @@ export default function DrawingCanvas({ className }: Props) {
 
   // ── Keyboard input panel handlers ─────────────────────────────────────────
   function handleLengthKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter') { commitWall(); return }
-    if (e.key === 'Escape') { setPendingStart(null); setKbLength(''); setKbDir(null); return }
-
+    if (e.key === 'Escape') { setPendingStart(null); setKbLength(''); setKbDir(null) }
+    // Arrow keys set direction and commit if a valid length is typed
     const dir = ARROW_DIR[e.key]
     if (dir) {
-      e.preventDefault()
-      setKbDir(dir)
+      e.preventDefault() // prevent cursor move in input
+      handleDirButton(dir)
     }
   }
 
   function handleDirButton(dir: Point2D) {
-    setKbDir(dir)
+    if (!pendingStart || !activeStoryId) return
     const len = parseFloat(kbLength)
-    if (!isNaN(len) && len > 0 && pendingStart && activeStoryId) {
-      const end = { x: pendingStart.x + dir.x * len, y: pendingStart.y + dir.y * len }
-      addWall(activeStoryId, { start: pendingStart, end })
-      setPendingStart(end)
-      setKbLength('')
-      setKbDir(null)
-      lengthInputRef.current?.focus()
+    if (isNaN(len) || len <= 0) {
+      // Just lock the direction preview without committing
+      setKbDir(dir)
+      return
     }
+    const end = { x: pendingStart.x + dir.x * len, y: pendingStart.y + dir.y * len }
+    addWall(activeStoryId, { start: pendingStart, end })
+    setPendingStart(end)
+    setKbLength('')
+    setKbDir(null)
+    lengthInputRef.current?.focus()
   }
 
   const zoomPct = Math.round((zoom / BASE_ZOOM) * 100)
@@ -418,7 +420,7 @@ export default function DrawingCanvas({ className }: Props) {
         <span>Active: <span className="text-blue-400 font-medium">{activeStory?.name ?? '—'}</span></span>
         <span className="ml-auto text-slate-500">
           {drawingTool === 'wall' && !pendingStart && 'Click canvas to start wall'}
-          {drawingTool === 'wall' && pendingStart && 'Type length → press arrow key direction, or click end point'}
+          {drawingTool === 'wall' && pendingStart && 'Type length in box → click a direction arrow to place • or click on canvas'}
           {drawingTool === 'polygon' && (polyPoints.length === 0 ? 'Click to place polygon points' : `${polyPoints.length} pts — click near start or double-click to close`)}
           {drawingTool === 'select' && 'Alt+drag or middle-mouse to pan • scroll to zoom'}
         </span>
@@ -426,13 +428,13 @@ export default function DrawingCanvas({ className }: Props) {
 
       {/* Keyboard measurement panel — shown when a wall is in progress */}
       {drawingTool === 'wall' && pendingStart && (
-        <div className="flex items-center gap-2 px-3 py-2 bg-slate-800 border border-slate-600 rounded-lg">
-          <span className="text-xs text-slate-400 shrink-0">Length (m)</span>
+        <div className="flex items-center gap-3 px-3 py-2 bg-slate-800 border border-slate-600 rounded-lg">
+          {/* Step 1 */}
+          <span className="text-xs text-slate-500 shrink-0">① Length&nbsp;(m)</span>
           <input
             ref={lengthInputRef}
-            type="number"
-            step="0.1"
-            min="0.01"
+            type="text"
+            inputMode="decimal"
             placeholder="e.g. 3.5"
             value={kbLength}
             onChange={(e) => setKbLength(e.target.value)}
@@ -440,30 +442,37 @@ export default function DrawingCanvas({ className }: Props) {
             className="w-24 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-slate-100 text-sm focus:outline-none focus:border-blue-400"
             autoFocus
           />
-          <span className="text-xs text-slate-500">Direction:</span>
+
+          {/* Step 2 */}
+          <span className="text-xs text-slate-500 shrink-0">② Direction</span>
           <div className="grid grid-cols-3 gap-0.5">
             <div />
-            <button onClick={() => handleDirButton({ x: 0, y: 1 })}
-              className={`p-1 rounded ${kbDir?.y === 1 && kbDir?.x === 0 ? 'bg-green-600' : 'bg-slate-700 hover:bg-slate-600'}`}>
-              <ArrowUp size={12} className="text-slate-200" />
+            <button onClick={() => handleDirButton({ x: 0, y: 1 })} title="North"
+              className={`p-1.5 rounded ${kbDir?.y === 1 && kbDir?.x === 0 ? 'bg-green-600' : 'bg-slate-700 hover:bg-slate-600'}`}>
+              <ArrowUp size={13} className="text-slate-200" />
             </button>
             <div />
-            <button onClick={() => handleDirButton({ x: -1, y: 0 })}
-              className={`p-1 rounded ${kbDir?.x === -1 ? 'bg-green-600' : 'bg-slate-700 hover:bg-slate-600'}`}>
-              <ArrowLeft size={12} className="text-slate-200" />
+            <button onClick={() => handleDirButton({ x: -1, y: 0 })} title="West"
+              className={`p-1.5 rounded ${kbDir?.x === -1 ? 'bg-green-600' : 'bg-slate-700 hover:bg-slate-600'}`}>
+              <ArrowLeft size={13} className="text-slate-200" />
             </button>
-            <button onClick={() => handleDirButton({ x: 0, y: -1 })}
-              className={`p-1 rounded ${kbDir?.y === -1 && kbDir?.x === 0 ? 'bg-green-600' : 'bg-slate-700 hover:bg-slate-600'}`}>
-              <ArrowDown size={12} className="text-slate-200" />
+            <button onClick={() => handleDirButton({ x: 0, y: -1 })} title="South"
+              className={`p-1.5 rounded ${kbDir?.y === -1 && kbDir?.x === 0 ? 'bg-green-600' : 'bg-slate-700 hover:bg-slate-600'}`}>
+              <ArrowDown size={13} className="text-slate-200" />
             </button>
-            <button onClick={() => handleDirButton({ x: 1, y: 0 })}
-              className={`p-1 rounded ${kbDir?.x === 1 ? 'bg-green-600' : 'bg-slate-700 hover:bg-slate-600'}`}>
-              <ArrowRight size={12} className="text-slate-200" />
+            <button onClick={() => handleDirButton({ x: 1, y: 0 })} title="East"
+              className={`p-1.5 rounded ${kbDir?.x === 1 ? 'bg-green-600' : 'bg-slate-700 hover:bg-slate-600'}`}>
+              <ArrowRight size={13} className="text-slate-200" />
             </button>
           </div>
-          <span className="text-xs text-slate-600 ml-1">or press ↑↓←→ keys then Enter</span>
+
+          <span className="text-xs text-slate-600">
+            {parseFloat(kbLength) > 0
+              ? 'Click a direction arrow (or press ↑ ↓ ← → on keyboard)'
+              : 'Type a length first, then pick direction'}
+          </span>
           <button onClick={() => { setPendingStart(null); setKbLength(''); setKbDir(null) }}
-            className="ml-auto text-xs text-slate-500 hover:text-red-400">✕ Cancel</button>
+            className="ml-auto text-xs text-slate-500 hover:text-red-400 shrink-0">✕ Cancel</button>
         </div>
       )}
 
