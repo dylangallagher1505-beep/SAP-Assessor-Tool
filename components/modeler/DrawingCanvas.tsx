@@ -383,6 +383,14 @@ export default function DrawingCanvas({ className }: Props) {
         setKbDir(null)
         setTimeout(() => lengthInputRef.current?.focus(), 50)
       } else {
+        // Auto-close if clicking near the first point and we have 2+ segments
+        if (wallChain.length >= 2) {
+          const first = wallChain[0]
+          const firstCanvas = worldToCanvas(first, pan, zoom)
+          const endCanvas = worldToCanvas(previewEnd(pendingStart), pan, zoom)
+          const distPx = Math.sqrt((endCanvas.x - firstCanvas.x) ** 2 + (endCanvas.y - firstCanvas.y) ** 2)
+          if (distPx < 14) { closeShape(); return }
+        }
         commitWall()
       }
     }
@@ -462,12 +470,12 @@ export default function DrawingCanvas({ className }: Props) {
     if (!pendingStart || !activeStoryId) return
     const len = parseFloat(kbLength)
     if (isNaN(len) || len <= 0) {
-      // Just lock the direction preview without committing
       setKbDir(dir)
       return
     }
     const end = { x: pendingStart.x + dir.x * len, y: pendingStart.y + dir.y * len }
     addWall(activeStoryId, { start: pendingStart, end })
+    setWallChain(prev => [...prev, pendingStart])
     setPendingStart(end)
     setKbLength('')
     setKbDir(null)
@@ -481,8 +489,15 @@ export default function DrawingCanvas({ className }: Props) {
       {/* Status bar */}
       <div className="flex items-center gap-2 text-xs text-slate-400">
         <span>Active: <span className="text-blue-400 font-medium">{activeStory?.name ?? '—'}</span></span>
+        {activeStory && activeStory.footprintPolygon.length >= 3 && !pendingStart && (
+          <button
+            onClick={() => { if (activeStoryId) clearWalls(activeStoryId) }}
+            className="px-2 py-0.5 rounded bg-slate-700 hover:bg-red-900/50 text-slate-400 hover:text-red-300 border border-slate-600 text-xs"
+          >↺ Redraw room</button>
+        )}
         <span className="ml-auto text-slate-500">
-          {drawingTool === 'wall' && !pendingStart && 'Click canvas to start wall'}
+          {drawingTool === 'wall' && !pendingStart && (activeStory?.footprintPolygon.length ?? 0) >= 3 && 'Room closed — click Redraw to edit'}
+          {drawingTool === 'wall' && !pendingStart && (activeStory?.footprintPolygon.length ?? 0) < 3 && 'Click canvas to start wall'}
           {drawingTool === 'wall' && pendingStart && (wallChain.length >= 2
             ? `${wallChain.length + 1} pts — type length + direction • Enter to commit • Right-click to undo • Close Shape to finish`
             : 'Type length → pick direction or click canvas • Right-click to undo')}

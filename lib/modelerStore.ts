@@ -75,6 +75,9 @@ interface ModelerState {
   // Footprint polygon (used when drawing in polygon mode)
   setFootprint: (storyId: string, polygon: Point2D[]) => void
 
+  // Copy the footprint + walls of one storey onto another
+  copyFootprintTo: (fromStoryId: string, toStoryId: string) => void
+
   // Roof
   updateRoof: (patch: Partial<RoofConfig>) => void
   setShowRoof: (v: boolean) => void
@@ -172,6 +175,19 @@ export const useModelerStore = create<ModelerState>((set) => ({
         st.id === storyId ? { ...st, footprintPolygon: polygon } : st
       ),
     })),
+
+  copyFootprintTo: (fromStoryId, toStoryId) =>
+    set((s) => {
+      const src = s.stories.find((st) => st.id === fromStoryId)
+      if (!src) return s
+      return {
+        stories: s.stories.map((st) =>
+          st.id === toStoryId
+            ? { ...st, walls: src.walls.map((w) => ({ ...w, id: uid() })), footprintPolygon: [...src.footprintPolygon] }
+            : st
+        ),
+      }
+    }),
 
   updateRoof: (patch) =>
     set((s) => ({ roofConfig: { ...s.roofConfig, ...patch } })),
