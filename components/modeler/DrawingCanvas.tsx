@@ -125,7 +125,10 @@ export default function DrawingCanvas({ className }: Props) {
   function closeShape() {
     if (!pendingStart || !activeStoryId || wallChain.length < 2) return
     const firstPoint = wallChain[0]
+    // Draw the closing wall
     addWall(activeStoryId, { start: pendingStart, end: firstPoint })
+    // Store the full footprint polygon so the 3D view can extrude it as a solid room
+    setFootprint(activeStoryId, [...wallChain, pendingStart])
     // Reset drawing state
     setPendingStart(null)
     setWallChain([])
