@@ -33,16 +33,19 @@ function buildFabricSchedule(stories: ReturnType<typeof useModelerStore.getState
     if (story.walls.length === 0) continue
 
     // Floor (ground floor only for first storey, otherwise internal)
-    if (story.footprintPolygon.length >= 3) {
-      const floorArea = polygonArea(story.footprintPolygon)
+    const floorPolygons = story.rooms.length > 0
+      ? story.rooms.map(r => r.polygon)
+      : story.footprintPolygon.length >= 3 ? [story.footprintPolygon] : []
+    const totalFloorArea = floorPolygons.reduce((s, p) => s + polygonArea(p), 0)
+    if (totalFloorArea > 0) {
       const isGround = si === 0
       rows.push({
         ref: `F${wallRef}`,
         element: `${story.name} Floor`,
         type: isGround ? 'Ground Floor' : 'Internal Floor',
-        grossArea: floorArea, openingArea: 0, netArea: floorArea,
+        grossArea: totalFloorArea, openingArea: 0, netArea: totalFloorArea,
         uValue: isGround ? 0.25 : 0,
-        heatLossArea: isGround ? floorArea : 0,
+        heatLossArea: isGround ? totalFloorArea : 0,
       })
     }
 
@@ -97,8 +100,8 @@ function buildFabricSchedule(stories: ReturnType<typeof useModelerStore.getState
 
     // Ceiling (only if not top storey, else roof handles it)
     const isTop = si === stories.length - 1
-    if (!isTop && story.footprintPolygon.length >= 3) {
-      const ceilArea = polygonArea(story.footprintPolygon)
+    const ceilArea = floorPolygons.reduce((s, p) => s + polygonArea(p), 0)
+    if (!isTop && ceilArea > 0) {
       rows.push({
         ref: `C${wallRef}`,
         element: `${story.name} Ceiling`,

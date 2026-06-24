@@ -45,6 +45,14 @@ export interface RoofConfig {
   ridgeOffsetFraction: number
 }
 
+// ─── Room (zone within a story) ──────────────────────────────────────────────
+
+export interface Room {
+  id: string
+  name: string
+  polygon: Point2D[]
+}
+
 // ─── Story / layer ──────────────────────────────────────────────────────────
 
 export interface Story {
@@ -53,7 +61,8 @@ export interface Story {
   startHeight: number
   storyHeight: number
   walls: Wall[]
-  footprintPolygon: Point2D[]
+  footprintPolygon: Point2D[]  // first/primary room footprint (legacy compat)
+  rooms: Room[]                // all named room polygons on this floor
   openings: Opening[]
 }
 
@@ -77,7 +86,7 @@ export interface RoofTakeoff {
 export type DrawingTool = 'select' | 'wall' | 'polygon'
 
 // Snapshot of one story's walls+openings+footprint for undo
-type WallSnapshot = Pick<Story, 'id' | 'walls' | 'openings' | 'footprintPolygon'>
+type WallSnapshot = Pick<Story, 'id' | 'walls' | 'openings' | 'footprintPolygon' | 'rooms'>
 
 // Selected face in the 3D view
 export type SelectedFace =
@@ -107,8 +116,10 @@ interface ModelerState {
   undoWall: (storyId: string) => void
   clearWalls: (storyId: string) => void
   setFootprint: (storyId: string, polygon: Point2D[]) => void
-  closePolygon: (storyId: string, polygon: Point2D[]) => void
+  closePolygon: (storyId: string, polygon: Point2D[], roomName?: string) => void
   copyFootprintTo: (fromStoryId: string, toStoryId: string) => void
+  updateRoom: (storyId: string, roomId: string, patch: Partial<Pick<Room, 'name'>>) => void
+  removeRoom: (storyId: string, roomId: string) => void
 
   setSelectedWallId: (id: string | null) => void
   setSelectedFace: (face: SelectedFace) => void
@@ -139,6 +150,7 @@ function makeStory(index: number): Story {
     storyHeight: 2.5,
     walls: [],
     footprintPolygon: [],
+    rooms: [],
     openings: [],
   }
 }
@@ -190,8 +202,8 @@ export const useModelerStore = create<ModelerState>()(
     set((s) => {
       const st = s.stories.find(x => x.id === storyId)
       const snapshot: WallSnapshot = st
-        ? { id: st.id, walls: st.walls, openings: st.openings, footprintPolygon: st.footprintPolygon }
-        : { id: storyId, walls: [], openings: [], footprintPolygon: [] }
+        ? { id: st.id, walls: st.walls, openings: st.openings, footprintPolygon: st.footprintPolygon, rooms: st.rooms }
+        : { id: storyId, walls: [], openings: [], footprintPolygon: [], rooms: [] }
       return {
         wallHistory: [...s.wallHistory.slice(-49), snapshot],
         stories: s.stories.map((st) => {
@@ -224,7 +236,7 @@ export const useModelerStore = create<ModelerState>()(
         selectedWallId: null,
         stories: s.stories.map((st) =>
           st.id === storyId
-            ? { ...st, walls: snap.walls, openings: snap.openings, footprintPolygon: snap.footprintPolygon }
+            ? { ...st, walls: snap.walls, openings: snap.openings, footprintPolygon: snap.footprintPolygon, rooms: snap.rooms }
             : st
         ),
       }
@@ -247,7 +259,7 @@ export const useModelerStore = create<ModelerState>()(
   clearWalls: (storyId) =>
     set((s) => ({
       stories: s.stories.map((st) =>
-        st.id === storyId ? { ...st, walls: [], footprintPolygon: [], openings: [] } : st
+        st.id === storyId ? { ...st, walls: [], footprintPolygon: [], rooms: [], openings: [] } : st
       ),
     })),
 
@@ -258,28 +270,78 @@ export const useModelerStore = create<ModelerState>()(
       ),
     })),
 
-  closePolygon: (storyId, polygon) =>
+  closePolygon: (storyId, polygon, roomName) =>
     set((s) => {
       const st = s.stories.find(x => x.id === storyId)
       const snapshot: WallSnapshot = st
-        ? { id: st.id, walls: st.walls, openings: st.openings, footprintPolygon: st.footprintPolygon }
-        : { id: storyId, walls: [], openings: [], footprintPolygon: [] }
+        ? { id: st.id, walls: st.walls, openings: st.openings, footprintPolygon: st.footprintPolygon, rooms: st.rooms }
+        : { id: storyId, walls: [], openings: [], footprintPolygon: [], rooms: [] }
       return {
         wallHistory: [...s.wallHistory.slice(-49), snapshot],
         stories: s.stories.map((st) => {
           if (st.id !== storyId) return st
-          const walls: Wall[] = polygon.map((pt, i) => ({
+          const existingWalls = st.walls
+          const wallOffset = existingWalls.length
+          const newWalls: Wall[] = polygon.map((pt, i) => ({
             id: uid(),
-            name: `Wall ${i + 1}`,
+            name: `Wall ${wallOffset + i + 1}`,
             wallType: 'external' as WallType,
             uValue: 0.18,
             start: pt,
             end: polygon[(i + 1) % polygon.length],
           }))
-          return { ...st, footprintPolygon: polygon, walls, openings: [] }
+          const room: Room = {
+            id: uid(),
+            name: roomName ?? `Room ${st.rooms.length + 1}`,
+            polygon,
+          }
+          // First room also sets the primary footprintPolygon for backward compat
+          const isFirst = st.rooms.length === 0
+          return {
+            ...st,
+            footprintPolygon: isFirst ? polygon : st.footprintPolygon,
+            rooms: [...st.rooms, room],
+            walls: [...existingWalls, ...newWalls],
+            openings: st.openings,
+          }
         }),
       }
     }),
+
+  updateRoom: (storyId, roomId, patch) =>
+    set((s) => ({
+      stories: s.stories.map((st) =>
+        st.id === storyId
+          ? { ...st, rooms: st.rooms.map(r => r.id === roomId ? { ...r, ...patch } : r) }
+          : st
+      ),
+    })),
+
+  removeRoom: (storyId, roomId) =>
+    set((s) => ({
+      stories: s.stories.map((st) => {
+        if (st.id !== storyId) return st
+        const room = st.rooms.find(r => r.id === roomId)
+        if (!room) return st
+        // Remove walls that form this room's polygon edges
+        const roomEdges = new Set(
+          room.polygon.map((pt, i) => {
+            const end = room.polygon[(i + 1) % room.polygon.length]
+            return `${pt.x},${pt.y}-${end.x},${end.y}`
+          })
+        )
+        const remainingWalls = st.walls.filter(w => !roomEdges.has(`${w.start.x},${w.start.y}-${w.end.x},${w.end.y}`))
+        const removedWallIds = new Set(st.walls.filter(w => roomEdges.has(`${w.start.x},${w.start.y}-${w.end.x},${w.end.y}`)).map(w => w.id))
+        const remainingRooms = st.rooms.filter(r => r.id !== roomId)
+        return {
+          ...st,
+          rooms: remainingRooms,
+          walls: remainingWalls,
+          openings: st.openings.filter(o => !removedWallIds.has(o.wallId)),
+          footprintPolygon: remainingRooms.length > 0 ? remainingRooms[0].polygon : [],
+        }
+      }),
+    })),
 
   copyFootprintTo: (fromStoryId, toStoryId) =>
     set((s) => {
@@ -288,7 +350,13 @@ export const useModelerStore = create<ModelerState>()(
       return {
         stories: s.stories.map((st) =>
           st.id === toStoryId
-            ? { ...st, walls: src.walls.map((w) => ({ ...w, id: uid(), name: w.name })), footprintPolygon: [...src.footprintPolygon], openings: [] }
+            ? {
+                ...st,
+                walls: src.walls.map((w) => ({ ...w, id: uid() })),
+                footprintPolygon: [...src.footprintPolygon],
+                rooms: src.rooms.map(r => ({ ...r, id: uid() })),
+                openings: [],
+              }
             : st
         ),
       }

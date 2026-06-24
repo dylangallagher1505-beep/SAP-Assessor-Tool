@@ -1,5 +1,5 @@
 'use client'
-import { PlusCircle, Trash2, ChevronDown, ChevronRight, Copy, Square, Ruler } from 'lucide-react'
+import { PlusCircle, Trash2, ChevronDown, ChevronRight, Copy, Square, Ruler, LayoutDashboard } from 'lucide-react'
 import { useState } from 'react'
 import { useModelerStore } from '@/lib/modelerStore'
 import OpeningsPanel from './OpeningsPanel'
@@ -19,11 +19,12 @@ function shoelaceArea(pts: { x: number; y: number }[]): number {
 }
 
 export default function StoryPanel() {
-  const { stories, activeStoryId, addStory, removeStory, updateStory, setActiveStory, copyFootprintTo, roofConfig, updateRoof, showRoof, setShowRoof, selectedWallId, setSelectedWallId, updateWall, removeWall, undoWall, wallHistory } =
+  const { stories, activeStoryId, addStory, removeStory, updateStory, setActiveStory, copyFootprintTo, roofConfig, updateRoof, showRoof, setShowRoof, selectedWallId, setSelectedWallId, updateWall, removeWall, undoWall, wallHistory, updateRoom, removeRoom } =
     useModelerStore()
   const [roofOpen, setRoofOpen] = useState(true)
   const [openingsOpen, setOpeningsOpen] = useState(true)
   const [wallsOpen, setWallsOpen] = useState(true)
+  const [roomsOpen, setRoomsOpen] = useState(true)
 
   const activeStory = stories.find(s => s.id === activeStoryId)
   const activeStoryIndex = stories.findIndex(s => s.id === activeStoryId)
@@ -97,9 +98,11 @@ export default function StoryPanel() {
 
               <div className="mt-1.5 text-xs text-gray-500 flex items-center justify-between">
                 <span>
-                  {story.footprintPolygon.length >= 3
-                    ? `${shoelaceArea(story.footprintPolygon).toFixed(1)} m²`
-                    : `${story.walls.length} walls`}
+                  {story.rooms.length > 0
+                    ? `${story.rooms.reduce((s, r) => s + shoelaceArea(r.polygon), 0).toFixed(1)} m² · ${story.rooms.length} room${story.rooms.length > 1 ? 's' : ''}`
+                    : story.footprintPolygon.length >= 3
+                      ? `${shoelaceArea(story.footprintPolygon).toFixed(1)} m²`
+                      : `${story.walls.length} walls`}
                 </span>
                 {story.footprintPolygon.length >= 3 && i < stories.length - 1 && (
                   <button
@@ -202,6 +205,44 @@ export default function StoryPanel() {
                   ↩ Undo last change
                 </button>
               )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Rooms Section */}
+      {activeStory && activeStory.rooms.length > 0 && (
+        <div className="border-t border-gray-200 pt-3">
+          <button
+            className="flex items-center gap-1 font-semibold text-gray-800 w-full mb-2"
+            onClick={() => setRoomsOpen(v => !v)}
+          >
+            {roomsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            <LayoutDashboard size={12} /> Rooms
+            <span className="ml-auto text-xs text-gray-400 font-normal">{activeStory.rooms.length}</span>
+          </button>
+          {roomsOpen && (
+            <div className="flex flex-col gap-0.5">
+              {activeStory.rooms.map((room) => {
+                const area = shoelaceArea(room.polygon)
+                return (
+                  <div key={room.id} className="flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-50 text-xs">
+                    <input
+                      value={room.name}
+                      onChange={(e) => updateRoom(activeStory.id, room.id, { name: e.target.value })}
+                      className="flex-1 bg-transparent focus:outline-none focus:border-b border-transparent text-gray-700 min-w-0"
+                    />
+                    <span className="text-gray-400 shrink-0">{area.toFixed(1)} m²</span>
+                    <button
+                      onClick={() => removeRoom(activeStory.id, room.id)}
+                      className="text-gray-300 hover:text-red-500 transition-colors shrink-0"
+                      title="Delete room"
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>

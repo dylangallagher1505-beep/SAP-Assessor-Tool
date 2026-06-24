@@ -7,21 +7,23 @@ import { useModelerStore, Story, Wall, Point2D, RoofConfig, Opening, SelectedFac
 
 // ─── Extruded Room ────────────────────────────────────────────────────────────
 
-function ExtrudedRoom({ story, isActive }: { story: Story; isActive: boolean }) {
+function ExtrudedRoom({ polygon, storyHeight, startHeight, isActive }: {
+  polygon: Point2D[]; storyHeight: number; startHeight: number; isActive: boolean
+}) {
   const geom = useMemo(() => {
-    const pts = story.footprintPolygon
+    const pts = polygon
     if (pts.length < 3) return null
     const shape = new THREE.Shape()
     shape.moveTo(pts[0].x, pts[0].y)
     for (let i = 1; i < pts.length; i++) shape.lineTo(pts[i].x, pts[i].y)
     shape.closePath()
-    return new THREE.ExtrudeGeometry(shape, { depth: story.storyHeight, bevelEnabled: false })
-  }, [story.footprintPolygon, story.storyHeight])
+    return new THREE.ExtrudeGeometry(shape, { depth: storyHeight, bevelEnabled: false })
+  }, [polygon, storyHeight])
 
   if (!geom) return null
 
   return (
-    <mesh geometry={geom} rotation={[-Math.PI / 2, 0, 0]} position={[0, story.startHeight, 0]}>
+    <mesh geometry={geom} rotation={[-Math.PI / 2, 0, 0]} position={[0, startHeight, 0]}>
       <meshStandardMaterial
         color={isActive ? '#2563eb' : '#64748b'}
         opacity={isActive ? 0.3 : 0.15}
@@ -102,23 +104,34 @@ function WallMesh({ wall, storyHeight, startHeight, isActive }: {
 // ─── Floor slab ───────────────────────────────────────────────────────────────
 
 function FloorSlab({ story }: { story: Story }) {
-  const pts = story.footprintPolygon.length >= 3 ? story.footprintPolygon : wallsToConvexHull(story.walls)
-  const shape = useMemo(() => {
+  const polygons: Point2D[][] = story.rooms.length > 0
+    ? story.rooms.map(r => r.polygon)
+    : story.footprintPolygon.length >= 3
+      ? [story.footprintPolygon]
+      : wallsToConvexHull(story.walls).length >= 3
+        ? [wallsToConvexHull(story.walls)]
+        : []
+
+  const shapes = useMemo(() => polygons.map(pts => {
     if (pts.length < 3) return null
     const s = new THREE.Shape()
     s.moveTo(pts[0].x, pts[0].y)
     for (let i = 1; i < pts.length; i++) s.lineTo(pts[i].x, pts[i].y)
     s.closePath()
     return s
-  }, [pts])
+  }).filter(Boolean) as THREE.Shape[], [story])
 
-  if (!shape) return null
+  if (shapes.length === 0) return null
 
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, story.startHeight + 0.01, 0]}>
-      <shapeGeometry args={[shape]} />
-      <meshStandardMaterial color="#e2e8f0" opacity={0.9} transparent side={THREE.DoubleSide} />
-    </mesh>
+    <>
+      {shapes.map((shape, i) => (
+        <mesh key={i} rotation={[-Math.PI / 2, 0, 0]} position={[0, story.startHeight + 0.01, 0]}>
+          <shapeGeometry args={[shape]} />
+          <meshStandardMaterial color="#e2e8f0" opacity={0.9} transparent side={THREE.DoubleSide} />
+        </mesh>
+      ))}
+    </>
   )
 }
 
@@ -372,13 +385,27 @@ function Scene() {
 
       {stories.map((story) => {
         const isActive = story.id === activeStoryId
-        const hasClosedRoom = story.footprintPolygon.length >= 3
+        // Support both legacy footprintPolygon and new multi-room rooms[]
+        const polygons: Point2D[][] = story.rooms.length > 0
+          ? story.rooms.map(r => r.polygon)
+          : story.footprintPolygon.length >= 3
+            ? [story.footprintPolygon]
+            : []
+        const hasRooms = polygons.length > 0
 
         return (
           <group key={story.id}>
-            {hasClosedRoom ? (
+            {hasRooms ? (
               <>
-                <ExtrudedRoom story={story} isActive={isActive} />
+                {polygons.map((poly, pi) => (
+                  <ExtrudedRoom
+                    key={pi}
+                    polygon={poly}
+                    storyHeight={story.storyHeight}
+                    startHeight={story.startHeight}
+                    isActive={isActive}
+                  />
+                ))}
                 <FloorSlab story={story} />
                 {story.openings.length > 0 && <OpeningMeshes story={story} />}
               </>
@@ -396,7 +423,7 @@ function Scene() {
                 ))}
               </>
             )}
-            {/* Clickable face quads overlaid on every wall (closed or open) */}
+            {/* Clickable face quads overlaid on every wall */}
             {story.walls.map((wall) => (
               <WallFaceQuad
                 key={`fq-${wall.id}`}
