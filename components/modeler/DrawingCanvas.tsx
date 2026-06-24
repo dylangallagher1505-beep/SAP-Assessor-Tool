@@ -54,7 +54,7 @@ export default function DrawingCanvas({ className }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const lengthInputRef = useRef<HTMLInputElement>(null)
 
-  const { stories, activeStoryId, drawingTool, gridSizeM, addWall, clearWalls, setFootprint, closePolygon, selectedWallId, setSelectedWallId, removeWall, undoWall, wallHistory } =
+  const { stories, activeStoryId, drawingTool, gridSizeM, addWall, clearWalls, setFootprint, closePolygon, registerRoom, selectedWallId, setSelectedWallId, removeWall, undoWall, wallHistory } =
     useModelerStore()
   const activeStory = stories.find((s) => s.id === activeStoryId)
 
@@ -165,7 +165,7 @@ export default function DrawingCanvas({ className }: Props) {
       const snapDist = Math.sqrt((end.x - first.x) ** 2 + (end.y - first.y) ** 2)
       if (snapDist <= gridSizeM * 0.6) {
         addWall(activeStoryId, { start: pendingStart, end: first }, name)
-        setFootprint(activeStoryId, [...wallChain, pendingStart])
+        registerRoom(activeStoryId, [...wallChain, pendingStart])
         setPendingStart(null)
         setWallChain([])
         setKbLength(''); setKbDir(null); setWallName('')
@@ -187,7 +187,7 @@ export default function DrawingCanvas({ className }: Props) {
     const firstPoint = wallChain[0]
     const closingName = wallName.trim() || nextWallName()
     addWall(activeStoryId, { start: pendingStart, end: firstPoint }, closingName)
-    setFootprint(activeStoryId, [...wallChain, pendingStart])
+    registerRoom(activeStoryId, [...wallChain, pendingStart])
     setPendingStart(null)
     setWallChain([])
     setKbLength('')

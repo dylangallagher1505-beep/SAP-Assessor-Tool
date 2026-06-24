@@ -35,9 +35,11 @@ export function polygonBBox(pts: Point2D[]): { minX: number; maxX: number; minY:
 export function calcStoryTakeoff(story: Story): StoryTakeoff {
   const wallSurfaceArea = story.walls.reduce((sum, w) => sum + wallLength(w) * story.storyHeight, 0)
 
-  // Floor area: prefer explicit footprint polygon, else derive from wall endpoints
+  // Floor area: sum all named rooms, or fall back to footprintPolygon, or derive from walls
   let floorArea = 0
-  if (story.footprintPolygon.length >= 3) {
+  if (story.rooms.length > 0) {
+    floorArea = story.rooms.reduce((s, r) => s + polygonArea(r.polygon), 0)
+  } else if (story.footprintPolygon.length >= 3) {
     floorArea = polygonArea(story.footprintPolygon)
   } else if (story.walls.length >= 3) {
     const pts = story.walls.flatMap((w) => [w.start, w.end])

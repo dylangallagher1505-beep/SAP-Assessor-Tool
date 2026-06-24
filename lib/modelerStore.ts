@@ -116,6 +116,7 @@ interface ModelerState {
   undoWall: (storyId: string) => void
   clearWalls: (storyId: string) => void
   setFootprint: (storyId: string, polygon: Point2D[]) => void
+  registerRoom: (storyId: string, polygon: Point2D[], roomName?: string) => void
   closePolygon: (storyId: string, polygon: Point2D[], roomName?: string) => void
   copyFootprintTo: (fromStoryId: string, toStoryId: string) => void
   updateRoom: (storyId: string, roomId: string, patch: Partial<Pick<Room, 'name'>>) => void
@@ -268,6 +269,24 @@ export const useModelerStore = create<ModelerState>()(
       stories: s.stories.map((st) =>
         st.id === storyId ? { ...st, footprintPolygon: polygon } : st
       ),
+    })),
+
+  registerRoom: (storyId, polygon, roomName) =>
+    set((s) => ({
+      stories: s.stories.map((st) => {
+        if (st.id !== storyId) return st
+        const room: Room = {
+          id: uid(),
+          name: roomName ?? `Room ${st.rooms.length + 1}`,
+          polygon,
+        }
+        const isFirst = st.rooms.length === 0
+        return {
+          ...st,
+          rooms: [...st.rooms, room],
+          footprintPolygon: isFirst ? polygon : st.footprintPolygon,
+        }
+      }),
     })),
 
   closePolygon: (storyId, polygon, roomName) =>
