@@ -1,6 +1,6 @@
 'use client'
 import { useRef, useEffect, useCallback, useState } from 'react'
-import { useModelerStore, Point2D } from '@/lib/modelerStore'
+import { useModelerStore, Point2D, Wall } from '@/lib/modelerStore'
 import { ZoomIn, ZoomOut, Maximize2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Trash2 } from 'lucide-react'
 
 const CANVAS_PX = 800
@@ -26,6 +26,19 @@ function snapToGrid(p: Point2D, gridSize: number): Point2D {
     x: Math.round(p.x / gridSize) * gridSize,
     y: Math.round(p.y / gridSize) * gridSize,
   }
+}
+
+function snapToVertex(p: Point2D, walls: Wall[], gridSize: number): Point2D {
+  const snapRadiusM = gridSize * 0.8
+  let best: Point2D | null = null
+  let bestDist = snapRadiusM
+  for (const w of walls) {
+    for (const v of [w.start, w.end]) {
+      const d = Math.sqrt((v.x - p.x) ** 2 + (v.y - p.y) ** 2)
+      if (d < bestDist) { bestDist = d; best = v }
+    }
+  }
+  return best ?? p
 }
 
 function snapToAngle(start: Point2D, end: Point2D): Point2D {
@@ -128,8 +141,10 @@ export default function DrawingCanvas({ className }: Props) {
 
   const getWorldPos = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const { cx, cy } = getCanvasPos(e)
-    return snapToGrid(canvasToWorld(cx, cy, pan, zoom), gridSizeM)
-  }, [pan, zoom, gridSizeM, getCanvasPos])
+    const gridPt = snapToGrid(canvasToWorld(cx, cy, pan, zoom), gridSizeM)
+    const story = stories.find(s => s.id === activeStoryId)
+    return story ? snapToVertex(gridPt, story.walls, gridSizeM) : gridPt
+  }, [pan, zoom, gridSizeM, getCanvasPos, stories, activeStoryId])
 
   // Compute the live preview end point (keyboard overrides mouse)
   const previewEnd = useCallback((start: Point2D): Point2D => {
