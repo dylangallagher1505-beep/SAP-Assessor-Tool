@@ -73,10 +73,17 @@ export type DrawingTool = 'select' | 'wall' | 'polygon'
 // Snapshot of one story's walls+openings+footprint for undo
 type WallSnapshot = Pick<Story, 'id' | 'walls' | 'openings' | 'footprintPolygon'>
 
+// Selected face in the 3D view
+export type SelectedFace =
+  | { type: 'wall'; storyId: string; wallId: string }
+  | { type: 'roof'; faceIndex: number; faceLabel: string }
+  | null
+
 interface ModelerState {
   stories: Story[]
   activeStoryId: string | null
   selectedWallId: string | null
+  selectedFace: SelectedFace
   wallHistory: WallSnapshot[]  // undo stack (most recent last)
   roofConfig: RoofConfig
   drawingTool: DrawingTool
@@ -98,6 +105,7 @@ interface ModelerState {
   copyFootprintTo: (fromStoryId: string, toStoryId: string) => void
 
   setSelectedWallId: (id: string | null) => void
+  setSelectedFace: (face: SelectedFace) => void
 
   // Openings
   addOpening: (storyId: string, opening: Omit<Opening, 'id'>) => void
@@ -136,6 +144,7 @@ export const useModelerStore = create<ModelerState>((set) => ({
   stories: [initial],
   activeStoryId: initial.id,
   selectedWallId: null,
+  selectedFace: null,
   wallHistory: [],
   roofConfig: { type: 'gable', pitchDegrees: 30, ridgeOffsetFraction: 0.5 },
   drawingTool: 'wall',
@@ -274,6 +283,7 @@ export const useModelerStore = create<ModelerState>((set) => ({
     }),
 
   setSelectedWallId: (id) => set({ selectedWallId: id }),
+  setSelectedFace: (face) => set({ selectedFace: face }),
 
   addOpening: (storyId, opening) =>
     set((s) => ({

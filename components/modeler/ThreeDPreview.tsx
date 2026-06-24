@@ -3,7 +3,7 @@ import { Canvas } from '@react-three/fiber'
 import { OrbitControls, Grid, Edges } from '@react-three/drei'
 import * as THREE from 'three'
 import { useMemo, useState } from 'react'
-import { useModelerStore, Story, Wall, Point2D, RoofConfig, Opening } from '@/lib/modelerStore'
+import { useModelerStore, Story, Wall, Point2D, RoofConfig, Opening, SelectedFace } from '@/lib/modelerStore'
 
 // ─── Extruded Room ────────────────────────────────────────────────────────────
 
@@ -29,6 +29,45 @@ function ExtrudedRoom({ story, isActive }: { story: Story; isActive: boolean }) 
         side={THREE.DoubleSide}
       />
       <Edges color={isActive ? '#3b82f6' : '#94a3b8'} lineWidth={isActive ? 1.5 : 1} />
+    </mesh>
+  )
+}
+
+// ─── Clickable wall face quad (used for both open and closed rooms) ──────────
+
+function WallFaceQuad({ wall, storyId, storyHeight, startHeight, selectedFace, onSelect }: {
+  wall: Wall; storyId: string; storyHeight: number; startHeight: number
+  selectedFace: SelectedFace; onSelect: (f: SelectedFace) => void
+}) {
+  const { position, rotation, length } = useMemo(() => {
+    const dx = wall.end.x - wall.start.x
+    const dy = wall.end.y - wall.start.y
+    const length = Math.sqrt(dx * dx + dy * dy)
+    const angle = Math.atan2(dy, dx)
+    return {
+      length,
+      rotation: angle,
+      position: [(wall.start.x + wall.end.x) / 2, startHeight + storyHeight / 2, (wall.start.y + wall.end.y) / 2] as [number, number, number],
+    }
+  }, [wall, startHeight, storyHeight])
+
+  if (length < 0.01) return null
+  const isSelected = selectedFace?.type === 'wall' && selectedFace.wallId === wall.id && selectedFace.storyId === storyId
+
+  return (
+    <mesh
+      position={position}
+      rotation={[0, -rotation, 0]}
+      onClick={(e) => { e.stopPropagation(); onSelect(isSelected ? null : { type: 'wall', storyId, wallId: wall.id }) }}
+    >
+      <planeGeometry args={[length, storyHeight]} />
+      <meshStandardMaterial
+        color={isSelected ? '#f59e0b' : '#3b82f6'}
+        opacity={isSelected ? 0.35 : 0.0}
+        transparent
+        side={THREE.DoubleSide}
+        depthWrite={false}
+      />
     </mesh>
   )
 }
@@ -215,17 +254,30 @@ function faceToGeometry(verts: [number, number, number][]): THREE.BufferGeometry
   return geom
 }
 
-function RoofMesh({ pts, eaveY, cfg }: { pts: Point2D[]; eaveY: number; cfg: RoofConfig }) {
+function RoofMesh({ pts, eaveY, cfg, selectedFace, onSelect }: {
+  pts: Point2D[]; eaveY: number; cfg: RoofConfig
+  selectedFace: SelectedFace; onSelect: (f: SelectedFace) => void
+}) {
   const faces = useMemo(() => buildRoofFaces(pts, eaveY, cfg), [pts, eaveY, cfg])
 
   return (
     <>
       {faces.map((face, i) => {
         const geom = faceToGeometry(face.verts)
+        const isSelected = selectedFace?.type === 'roof' && selectedFace.faceIndex === i
         return (
-          <mesh key={i} geometry={geom}>
-            <meshStandardMaterial color="#475569" opacity={0.5} transparent side={THREE.DoubleSide} />
-            <Edges color="#94a3b8" lineWidth={1} />
+          <mesh
+            key={i}
+            geometry={geom}
+            onClick={(e) => { e.stopPropagation(); onSelect(isSelected ? null : { type: 'roof', faceIndex: i, faceLabel: face.label }) }}
+          >
+            <meshStandardMaterial
+              color={isSelected ? '#f59e0b' : '#475569'}
+              opacity={isSelected ? 0.65 : 0.5}
+              transparent
+              side={THREE.DoubleSide}
+            />
+            <Edges color={isSelected ? '#d97706' : '#94a3b8'} lineWidth={isSelected ? 2 : 1} />
           </mesh>
         )
       })}
@@ -293,9 +345,8 @@ function OpeningMeshes({ story }: { story: Story }) {
 // ─── Scene ────────────────────────────────────────────────────────────────────
 
 function Scene() {
-  const { stories, activeStoryId, roofConfig, showRoof } = useModelerStore()
+  const { stories, activeStoryId, roofConfig, showRoof, selectedFace, setSelectedFace } = useModelerStore()
 
-  // Roof sits on top of the highest storey
   const topStory = stories.length > 0 ? stories[stories.length - 1] : null
   const roofEaveY = topStory ? topStory.startHeight + topStory.storyHeight : 0
   const roofFootprint = topStory?.footprintPolygon.length ?? 0 >= 3
@@ -345,12 +396,30 @@ function Scene() {
                 ))}
               </>
             )}
+            {/* Clickable face quads overlaid on every wall (closed or open) */}
+            {story.walls.map((wall) => (
+              <WallFaceQuad
+                key={`fq-${wall.id}`}
+                wall={wall}
+                storyId={story.id}
+                storyHeight={story.storyHeight}
+                startHeight={story.startHeight}
+                selectedFace={selectedFace}
+                onSelect={setSelectedFace}
+              />
+            ))}
           </group>
         )
       })}
 
       {showRoof && roofFootprint.length >= 3 && (
-        <RoofMesh pts={roofFootprint} eaveY={roofEaveY} cfg={roofConfig} />
+        <RoofMesh
+          pts={roofFootprint}
+          eaveY={roofEaveY}
+          cfg={roofConfig}
+          selectedFace={selectedFace}
+          onSelect={setSelectedFace}
+        />
       )}
     </>
   )
