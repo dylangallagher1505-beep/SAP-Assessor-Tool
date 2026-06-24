@@ -2,7 +2,8 @@
 import { useMemo, useState } from 'react'
 import { useModelerStore } from '@/lib/modelerStore'
 import { calcStoryTakeoff, calcRoofTakeoff, polygonArea } from '@/lib/takeoffCalc'
-import { Ruler, Layers, Home, Table, Download } from 'lucide-react'
+import { Ruler, Layers, Home, Table, Download, Thermometer } from 'lucide-react'
+import UValueCalculator from '@/components/uvalue/UValueCalculator'
 
 function fmt(n: number, dp = 2) { return n.toFixed(dp) }
 
@@ -139,7 +140,7 @@ function exportCSV(rows: FabricRow[]) {
 
 export default function TakeoffPanel() {
   const { stories, roofConfig } = useModelerStore()
-  const [tab, setTab] = useState<'summary' | 'schedule'>('summary')
+  const [tab, setTab] = useState<'summary' | 'schedule' | 'uvalue'>('summary')
 
   const storyTakeoffs = useMemo(() => stories.map(calcStoryTakeoff), [stories])
   const roofTakeoff = useMemo(() => {
@@ -166,6 +167,9 @@ export default function TakeoffPanel() {
       <div className="flex rounded-lg overflow-hidden border border-gray-200 text-xs">
         <button onClick={() => setTab('summary')} className={`flex-1 py-1 font-medium ${tab === 'summary' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>Summary</button>
         <button onClick={() => setTab('schedule')} className={`flex-1 py-1 font-medium ${tab === 'schedule' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>SAP Schedule</button>
+        <button onClick={() => setTab('uvalue')} className={`flex-1 py-1 font-medium flex items-center justify-center gap-1 ${tab === 'uvalue' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+          <Thermometer size={10} /> U-Value
+        </button>
       </div>
 
       {tab === 'summary' && (
@@ -303,6 +307,10 @@ export default function TakeoffPanel() {
             </>
           )}
         </>
+      )}
+
+      {tab === 'uvalue' && (
+        <UValueCalculator />
       )}
     </div>
   )
