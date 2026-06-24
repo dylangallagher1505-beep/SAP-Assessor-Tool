@@ -1,7 +1,7 @@
 'use client'
 import { useRef, useEffect, useCallback, useState, useRef as useRefAlias } from 'react'
 import { useModelerStore, Point2D } from '@/lib/modelerStore'
-import { ZoomIn, ZoomOut, Maximize2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight } from 'lucide-react'
+import { ZoomIn, ZoomOut, Maximize2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Trash2 } from 'lucide-react'
 
 const CANVAS_PX = 800
 
@@ -54,7 +54,7 @@ export default function DrawingCanvas({ className }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const lengthInputRef = useRef<HTMLInputElement>(null)
 
-  const { stories, activeStoryId, drawingTool, gridSizeM, addWall, clearWalls, setFootprint, closePolygon, selectedWallId, setSelectedWallId } =
+  const { stories, activeStoryId, drawingTool, gridSizeM, addWall, clearWalls, setFootprint, closePolygon, selectedWallId, setSelectedWallId, removeWall, undoWall, wallHistory } =
     useModelerStore()
   const activeStory = stories.find((s) => s.id === activeStoryId)
 
@@ -180,6 +180,41 @@ export default function DrawingCanvas({ className }: Props) {
     setKbDir(null)
     setWallName('')
   }
+
+  // ── Keyboard shortcuts (Ctrl+Z undo, Delete key) ─────────────────────────
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      // Don't intercept when typing in inputs
+      if ((e.target as HTMLElement).tagName === 'INPUT') return
+
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault()
+        if (pendingStart && wallChain.length > 0) {
+          // While drawing: undo last placed segment (same as right-click)
+          const prevPoint = wallChain[wallChain.length - 1]
+          const lastWall = activeStory?.walls.at(-1)
+          if (lastWall && activeStoryId) removeWall(activeStoryId, lastWall.id)
+          setWallChain(prev => prev.slice(0, -1))
+          setPendingStart(prevPoint)
+          setKbLength(''); setKbDir(null)
+        } else if (activeStoryId) {
+          // Outside drawing: undo last committed wall batch
+          undoWall(activeStoryId)
+        }
+      }
+
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedWallId && activeStoryId && !pendingStart) {
+          e.preventDefault()
+          removeWall(activeStoryId, selectedWallId)
+          setSelectedWallId(null)
+        }
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [pendingStart, wallChain, activeStory, activeStoryId, selectedWallId, removeWall, undoWall, setSelectedWallId])
 
   // ── Zoom / Pan ────────────────────────────────────────────────────────────
 
@@ -665,7 +700,14 @@ export default function DrawingCanvas({ className }: Props) {
           <span className="text-amber-700">Length: <span className="font-mono font-bold">{selectedWallMeasure.len.toFixed(2)} m</span></span>
           <span className="text-amber-700">Area: <span className="font-mono font-bold">{selectedWallMeasure.area.toFixed(2)} m²</span></span>
           <span className="text-amber-700">Bearing: <span className="font-mono font-bold">{selectedWallMeasure.cardinal} ({selectedWallMeasure.bearingDeg.toFixed(0)}°)</span></span>
-          <button onClick={() => setSelectedWallId(null)} className="ml-auto text-amber-500 hover:text-amber-700">✕</button>
+          <button
+            onClick={() => { if (activeStoryId) { removeWall(activeStoryId, selectedWall.id); setSelectedWallId(null) } }}
+            className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded bg-red-50 border border-red-200 text-red-500 hover:bg-red-100 transition-colors"
+            title="Delete wall (Del)"
+          >
+            <Trash2 size={11} /> Delete
+          </button>
+          <button onClick={() => setSelectedWallId(null)} className="text-amber-400 hover:text-amber-700">✕</button>
         </div>
       )}
 
