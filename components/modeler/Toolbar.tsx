@@ -9,7 +9,7 @@ const tools: { id: DrawingTool; label: string; icon: React.ReactNode }[] = [
 ]
 
 export default function Toolbar() {
-  const { drawingTool, setDrawingTool, gridSizeM, stories, activeStoryId, setActiveStory } = useModelerStore()
+  const { drawingTool, setDrawingTool, gridSizeM, setGridSize, stories, activeStoryId, setActiveStory } = useModelerStore()
 
   return (
     <div className="flex items-center gap-3 px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm shadow-sm flex-wrap">
@@ -62,8 +62,7 @@ export default function Toolbar() {
         {[0.25, 0.5, 1].map((g) => (
           <button
             key={g}
-            // @ts-ignore – accessing store's internal set directly
-            onClick={() => useModelerStore.setState({ gridSizeM: g })}
+            onClick={() => setGridSize(g)}
             className={`px-2 py-1 rounded text-xs border ${
               gridSizeM === g ? 'bg-blue-50 border-blue-400 text-blue-700' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
             }`}

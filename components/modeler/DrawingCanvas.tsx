@@ -1,5 +1,5 @@
 'use client'
-import { useRef, useEffect, useCallback, useState, useRef as useRefAlias } from 'react'
+import { useRef, useEffect, useCallback, useState } from 'react'
 import { useModelerStore, Point2D } from '@/lib/modelerStore'
 import { ZoomIn, ZoomOut, Maximize2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Trash2 } from 'lucide-react'
 

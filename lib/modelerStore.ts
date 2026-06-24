@@ -115,6 +115,7 @@ interface ModelerState {
   updateRoof: (patch: Partial<RoofConfig>) => void
   setShowRoof: (v: boolean) => void
   setDrawingTool: (t: DrawingTool) => void
+  setGridSize: (m: number) => void
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -314,4 +315,5 @@ export const useModelerStore = create<ModelerState>((set) => ({
   setShowRoof: (v) => set({ showRoof: v }),
 
   setDrawingTool: (t) => set({ drawingTool: t }),
+  setGridSize: (m) => set({ gridSizeM: m }),
 }))
