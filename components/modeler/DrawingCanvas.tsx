@@ -245,10 +245,21 @@ export default function DrawingCanvas({ className }: Props) {
           setSelectedWallId(null)
         }
       }
+
+      if (e.key === 'Escape') {
+        // Cancel in-progress drawing
+        if (pendingStart) {
+          setPendingStart(null)
+          setWallChain([])
+          setKbLength(''); setKbDir(null); setWallName('')
+        }
+        if (polyPoints.length > 0) setPolyPoints([])
+        setSelectedWallId(null)
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [pendingStart, wallChain, activeStory, activeStoryId, selectedWallId, removeWall, undoWall, setSelectedWallId])
+  }, [pendingStart, wallChain, polyPoints, activeStory, activeStoryId, selectedWallId, removeWall, undoWall, setSelectedWallId])
 
   // ── Zoom / Pan ────────────────────────────────────────────────────────────
 
