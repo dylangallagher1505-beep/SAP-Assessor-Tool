@@ -85,6 +85,7 @@ export default function DrawingCanvas({ className }: Props) {
   // ── Drawing state ───────────────────────────────────────────────────────────
   const [pendingStart, setPendingStart] = useState<Point2D | null>(null)
   const [mouseWorld, setMouseWorld] = useState<Point2D>({ x: 0, y: 0 })
+  const [snappedToVertex, setSnappedToVertex] = useState(false)
   const [polyPoints, setPolyPoints] = useState<Point2D[]>([])
 
   // Keyboard measurement input
@@ -143,7 +144,11 @@ export default function DrawingCanvas({ className }: Props) {
     const { cx, cy } = getCanvasPos(e)
     const gridPt = snapToGrid(canvasToWorld(cx, cy, pan, zoom), gridSizeM)
     const story = stories.find(s => s.id === activeStoryId)
-    return story ? snapToVertex(gridPt, story.walls, gridSizeM) : gridPt
+    if (!story) return gridPt
+    const snapped = snapToVertex(gridPt, story.walls, gridSizeM)
+    const isSnapped = snapped !== gridPt
+    setSnappedToVertex(isSnapped)
+    return snapped
   }, [pan, zoom, gridSizeM, getCanvasPos, stories, activeStoryId])
 
   // Compute the live preview end point (keyboard overrides mouse)
@@ -549,11 +554,20 @@ export default function DrawingCanvas({ className }: Props) {
     ctx.beginPath(); ctx.moveTo(mp.x, 0); ctx.lineTo(mp.x, CANVAS_PX); ctx.stroke()
     ctx.beginPath(); ctx.moveTo(0, mp.y); ctx.lineTo(CANVAS_PX, mp.y); ctx.stroke()
 
+    // Vertex snap indicator
+    if (snappedToVertex) {
+      ctx.strokeStyle = '#16a34a'
+      ctx.lineWidth = 2
+      ctx.beginPath(); ctx.arc(mp.x, mp.y, 7, 0, Math.PI * 2); ctx.stroke()
+      ctx.fillStyle = 'rgba(22,163,74,0.15)'
+      ctx.beginPath(); ctx.arc(mp.x, mp.y, 7, 0, Math.PI * 2); ctx.fill()
+    }
+
     // Coords + zoom
     ctx.fillStyle = 'rgba(71,85,105,0.6)'
     ctx.font = '10px monospace'
     ctx.fillText(`(${mouseWorld.x.toFixed(2)}, ${mouseWorld.y.toFixed(2)})  ×${(zoom / BASE_ZOOM).toFixed(1)}`, 6, CANVAS_PX - 6)
-  }, [stories, activeStoryId, pendingStart, mouseWorld, polyPoints, pan, zoom, gridSizeM, drawingTool, previewEnd, kbDir, BASE_ZOOM, wallChain, selectedWallId, hoveredWallId])
+  }, [stories, activeStoryId, pendingStart, mouseWorld, polyPoints, pan, zoom, gridSizeM, drawingTool, previewEnd, kbDir, BASE_ZOOM, wallChain, selectedWallId, hoveredWallId, snappedToVertex])
 
   // ── Click ─────────────────────────────────────────────────────────────────
   function handleClick(e: React.MouseEvent<HTMLCanvasElement>) {
