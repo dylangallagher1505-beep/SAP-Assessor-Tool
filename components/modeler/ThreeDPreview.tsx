@@ -55,6 +55,7 @@ function WallFaceQuad({ wall, storyId, storyHeight, startHeight, selectedFace, o
 
   if (length < 0.01) return null
   const isSelected = selectedFace?.type === 'wall' && selectedFace.wallId === wall.id && selectedFace.storyId === storyId
+  const hoverColor = wall.wallType === 'party' ? '#fb923c' : wall.wallType === 'internal' ? '#94a3b8' : '#3b82f6'
 
   return (
     <mesh
@@ -64,7 +65,7 @@ function WallFaceQuad({ wall, storyId, storyHeight, startHeight, selectedFace, o
     >
       <planeGeometry args={[length, storyHeight]} />
       <meshStandardMaterial
-        color={isSelected ? '#f59e0b' : '#3b82f6'}
+        color={isSelected ? '#f59e0b' : hoverColor}
         opacity={isSelected ? 0.35 : 0.0}
         transparent
         side={THREE.DoubleSide}
@@ -93,10 +94,12 @@ function WallMesh({ wall, storyHeight, startHeight, isActive }: {
 
   if (length < 0.01) return null
 
+  const wallColor = wall.wallType === 'party' ? '#f97316' : wall.wallType === 'internal' ? '#94a3b8' : (isActive ? '#3b82f6' : '#94a3b8')
+
   return (
     <mesh position={position} rotation={[0, -rotation, 0]}>
       <boxGeometry args={[length, storyHeight, 0.15]} />
-      <meshStandardMaterial color={isActive ? '#3b82f6' : '#94a3b8'} opacity={isActive ? 0.8 : 0.4} transparent={!isActive} />
+      <meshStandardMaterial color={wallColor} opacity={isActive ? 0.8 : 0.4} transparent={!isActive} />
     </mesh>
   )
 }
