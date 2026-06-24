@@ -36,10 +36,24 @@ export default function StoryPanel() {
       <div className="flex items-center justify-between">
         <span className="font-semibold text-gray-800">Stories</span>
         <button
-          onClick={addStory}
+          onClick={() => {
+            const last = stories[stories.length - 1]
+            addStory()
+            // After addStory, copy footprint from last story to the new one
+            if (last && (last.rooms.length > 0 || last.footprintPolygon.length >= 3)) {
+              // Use timeout to allow store to update with new story id
+              setTimeout(() => {
+                const s = useModelerStore.getState()
+                const newStory = s.stories[s.stories.length - 1]
+                if (newStory && newStory.id !== last.id) {
+                  copyFootprintTo(last.id, newStory.id)
+                }
+              }, 0)
+            }
+          }}
           className="flex items-center gap-1 px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 text-xs"
         >
-          <PlusCircle size={13} /> Add
+          <PlusCircle size={13} /> Add Floor
         </button>
       </div>
 
