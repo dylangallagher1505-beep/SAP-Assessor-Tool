@@ -27,11 +27,12 @@ export interface Opening {
   id: string
   wallId: string
   type: OpeningType
-  uOffset: number   // fraction 0–1 along wall length (left edge of opening)
-  width: number     // metres
-  height: number    // metres
+  uOffset: number    // fraction 0–1 along wall length (left edge of opening)
+  width: number      // metres
+  height: number     // metres
   sillHeight: number // metres from floor
-  uValue: number    // W/m²K
+  uValue: number     // W/m²K
+  gValue: number     // solar energy transmittance (SHGC), 0–1; SAP solar gain calc
 }
 
 // ─── Roof types ─────────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 'use client'
-import { MousePointer2, Minus, Pentagon, Layers } from 'lucide-react'
+import { MousePointer2, Minus, Pentagon, Layers, RotateCcw } from 'lucide-react'
 import { useModelerStore, DrawingTool } from '@/lib/modelerStore'
 
 const tools: { id: DrawingTool; label: string; icon: React.ReactNode }[] = [
@@ -9,7 +9,14 @@ const tools: { id: DrawingTool; label: string; icon: React.ReactNode }[] = [
 ]
 
 export default function Toolbar() {
-  const { drawingTool, setDrawingTool, gridSizeM, setGridSize, stories, activeStoryId, setActiveStory } = useModelerStore()
+  const { drawingTool, setDrawingTool, gridSizeM, setGridSize, stories, activeStoryId, setActiveStory, addStory } = useModelerStore()
+
+  function handleNewModel() {
+    if (!confirm('Start a new model? All current work will be cleared.')) return
+    // Reset store to initial state via localStorage clear + reload
+    localStorage.removeItem('sap-modeler-v1')
+    window.location.reload()
+  }
 
   return (
     <div className="flex items-center gap-3 px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm shadow-sm flex-wrap">
@@ -58,7 +65,14 @@ export default function Toolbar() {
       </div>
 
       <div className="ml-auto flex items-center gap-2 text-xs text-gray-500">
-        <span>Grid</span>
+        <button
+          onClick={handleNewModel}
+          title="Start a new model"
+          className="flex items-center gap-1 px-2 py-1 rounded border border-gray-200 text-gray-500 hover:text-red-500 hover:border-red-200 transition-colors"
+        >
+          <RotateCcw size={12} /> New
+        </button>
+        <span className="pl-1">Grid</span>
         {[0.25, 0.5, 1].map((g) => (
           <button
             key={g}
