@@ -8,7 +8,8 @@ function wallLength(start: { x: number; y: number }, end: { x: number; y: number
   return Math.sqrt(dx * dx + dy * dy)
 }
 
-function wallLabel(i: number, len: number) {
+function wallLabel(wall: { name?: string; start: { x: number; y: number }; end: { x: number; y: number } }, i: number, len: number) {
+  if (wall.name) return `${wall.name} — ${len.toFixed(2)}m`
   const dirs = ['N', 'E', 'S', 'W']
   return `Wall ${i + 1} (${dirs[i % 4]}) — ${len.toFixed(2)}m`
 }
@@ -52,7 +53,7 @@ export default function OpeningsPanel() {
               onClick={() => setExpandedWall(isOpen ? null : wall.id)}
             >
               {isOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-              <span className="text-gray-700 flex-1">{wallLabel(i, len)}</span>
+              <span className="text-gray-700 flex-1">{wallLabel(wall, i, len)}</span>
               <span className="text-gray-400">{wallOpenings.length > 0 ? `${wallOpenings.length} opening${wallOpenings.length > 1 ? 's' : ''}` : ''}</span>
             </button>
 
