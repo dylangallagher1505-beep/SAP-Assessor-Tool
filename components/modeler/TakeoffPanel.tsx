@@ -129,12 +129,18 @@ function buildFabricSchedule(stories: ReturnType<typeof useModelerStore.getState
   return rows
 }
 
-function exportCSV(rows: FabricRow[]) {
+function exportCSV(rows: FabricRow[], yFactor: number, ventHL: number) {
   const header = 'Ref,Element,Type,Gross Area (m²),Opening Area (m²),Net Area (m²),U-value (W/m²K),Heat Loss Area (m²),Heat Loss (W/K)\n'
   const body = rows.map(r =>
     `${r.ref},"${r.element}",${r.type},${fmt(r.grossArea)},${fmt(r.openingArea)},${fmt(r.netArea)},${fmt(r.uValue)},${fmt(r.heatLossArea)},${fmt(r.heatLossArea * r.uValue)}`
   ).join('\n')
-  const blob = new Blob([header + body], { type: 'text/csv' })
+  const totalFabric = rows.reduce((s, r) => s + r.heatLossArea * r.uValue, 0)
+  const totalExtArea = rows.reduce((s, r) => s + r.heatLossArea, 0)
+  const bridgingHL = totalExtArea * yFactor
+  const footer = `\nTB,Thermal Bridging (y·ΣA),Thermal Bridging,${fmt(totalExtArea)},,,${fmt(yFactor)},${fmt(totalExtArea)},${fmt(bridgingHL)}`
+    + `\nHV,Ventilation Heat Loss,Ventilation,,,,,,${fmt(ventHL)}`
+    + `\n,,Total HT+HV,,,,,, ${fmt(totalFabric + bridgingHL + ventHL)}`
+  const blob = new Blob([header + body + footer], { type: 'text/csv' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url; a.download = 'sap-fabric-schedule.csv'; a.click()
@@ -341,7 +347,7 @@ export default function TakeoffPanel() {
               <Table size={12} /> SAP 10.2 Fabric Schedule
             </div>
             <button
-              onClick={() => exportCSV(fabricRows)}
+              onClick={() => exportCSV(fabricRows, yFactor, ventHeatLoss)}
               className="flex items-center gap-1 text-xs text-green-600 hover:text-green-700"
             >
               <Download size={11} /> CSV
