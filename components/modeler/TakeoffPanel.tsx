@@ -28,13 +28,14 @@ function buildFabricSchedule(stories: ReturnType<typeof useModelerStore.getState
   const rows: FabricRow[] = []
   let wallRef = 1
 
-  for (const story of stories) {
+  for (let si = 0; si < stories.length; si++) {
+    const story = stories[si]
     if (story.walls.length === 0) continue
 
     // Floor (ground floor only for first storey, otherwise internal)
     if (story.footprintPolygon.length >= 3) {
       const floorArea = polygonArea(story.footprintPolygon)
-      const isGround = story.startHeight < 0.01
+      const isGround = si === 0
       rows.push({
         ref: `F${wallRef}`,
         element: `${story.name} Floor`,
@@ -53,14 +54,18 @@ function buildFabricSchedule(stories: ReturnType<typeof useModelerStore.getState
       const wallOpenings = story.openings.filter(o => o.wallId === wall.id)
       const openingArea = wallOpenings.reduce((s, o) => s + o.width * o.height, 0)
       const netArea = Math.max(0, grossWallArea - openingArea)
+      const wType = wall.wallType ?? 'external'
+      const uVal = wall.uValue ?? 0.18
+      const isHeatLoss = wType === 'external'
+      const typeLabel = wType === 'party' ? 'Party Wall' : wType === 'internal' ? 'Internal Wall' : 'External Wall'
 
       rows.push({
         ref: `W${wallRef}`,
-        element: `${story.name} Wall ${wallRef}`,
-        type: 'External Wall',
+        element: wall.name || `${story.name} Wall ${wallRef}`,
+        type: typeLabel,
         grossArea: grossWallArea, openingArea, netArea,
-        uValue: 0.18,
-        heatLossArea: netArea,
+        uValue: uVal,
+        heatLossArea: isHeatLoss ? netArea : 0,
       })
 
       // Window rows
@@ -91,7 +96,7 @@ function buildFabricSchedule(stories: ReturnType<typeof useModelerStore.getState
     }
 
     // Ceiling (only if not top storey, else roof handles it)
-    const isTop = story === stories[stories.length - 1]
+    const isTop = si === stories.length - 1
     if (!isTop && story.footprintPolygon.length >= 3) {
       const ceilArea = polygonArea(story.footprintPolygon)
       rows.push({

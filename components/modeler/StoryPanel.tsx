@@ -132,30 +132,64 @@ export default function StoryPanel() {
               {activeStory.walls.map((wall) => {
                 const len = wallLength(wall.start, wall.end)
                 const isSelected = wall.id === selectedWallId
+                const wallType = wall.wallType ?? 'external'
+                const typeColors: Record<string, string> = {
+                  external: 'bg-blue-50 text-blue-700 border-blue-200',
+                  party:    'bg-orange-50 text-orange-700 border-orange-200',
+                  internal: 'bg-gray-100 text-gray-500 border-gray-200',
+                }
                 return (
-                  <div
-                    key={wall.id}
-                    onClick={() => setSelectedWallId(isSelected ? null : wall.id)}
-                    className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs transition-colors ${
-                      isSelected ? 'bg-amber-50 border border-amber-300' : 'hover:bg-gray-50 border border-transparent'
-                    }`}
-                  >
-                    <input
-                      value={wall.name}
-                      onChange={(e) => updateWall(activeStory.id, wall.id, { name: e.target.value })}
-                      onClick={(e) => e.stopPropagation()}
-                      className={`flex-1 bg-transparent focus:outline-none focus:border-b text-xs min-w-0 ${
-                        isSelected ? 'text-amber-800 border-amber-400 font-medium' : 'text-gray-700 border-gray-300'
+                  <div key={wall.id} className="flex flex-col">
+                    <div
+                      onClick={() => setSelectedWallId(isSelected ? null : wall.id)}
+                      className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs transition-colors ${
+                        isSelected ? 'bg-amber-50 border border-amber-300' : 'hover:bg-gray-50 border border-transparent'
                       }`}
-                    />
-                    <span className="text-gray-400 font-mono shrink-0">{len.toFixed(2)}m</span>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); removeWall(activeStory.id, wall.id) }}
-                      className="text-gray-300 hover:text-red-500 transition-colors shrink-0"
-                      title="Delete wall"
                     >
-                      <Trash2 size={11} />
-                    </button>
+                      <input
+                        value={wall.name}
+                        onChange={(e) => updateWall(activeStory.id, wall.id, { name: e.target.value })}
+                        onClick={(e) => e.stopPropagation()}
+                        className={`flex-1 bg-transparent focus:outline-none focus:border-b text-xs min-w-0 ${
+                          isSelected ? 'text-amber-800 border-amber-400 font-medium' : 'text-gray-700 border-gray-300'
+                        }`}
+                      />
+                      <span className={`text-[9px] px-1 py-0.5 rounded border font-medium shrink-0 ${typeColors[wallType]}`}>
+                        {wallType === 'party' ? 'PARTY' : wallType === 'internal' ? 'INT' : 'EXT'}
+                      </span>
+                      <span className="text-gray-400 font-mono shrink-0">{len.toFixed(2)}m</span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); removeWall(activeStory.id, wall.id) }}
+                        className="text-gray-300 hover:text-red-500 transition-colors shrink-0"
+                        title="Delete wall"
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    </div>
+                    {isSelected && (
+                      <div className="flex items-center gap-2 px-2 pb-1.5 ml-1" onClick={e => e.stopPropagation()}>
+                        <span className="text-[10px] text-gray-400">Type</span>
+                        {(['external', 'party', 'internal'] as const).map(t => (
+                          <button
+                            key={t}
+                            onClick={() => updateWall(activeStory.id, wall.id, { wallType: t })}
+                            className={`text-[9px] px-1.5 py-0.5 rounded border font-medium transition-colors ${
+                              wallType === t ? typeColors[t] : 'bg-white text-gray-400 border-gray-200 hover:bg-gray-50'
+                            }`}
+                          >
+                            {t.charAt(0).toUpperCase() + t.slice(1)}
+                          </button>
+                        ))}
+                        <span className="text-[10px] text-gray-400 ml-1">U</span>
+                        <input
+                          type="number" step="0.01" min="0" max="10"
+                          value={wall.uValue ?? 0.18}
+                          onChange={e => updateWall(activeStory.id, wall.id, { uValue: parseFloat(e.target.value) || 0.18 })}
+                          className="w-14 text-[10px] border border-gray-200 rounded px-1 py-0.5 text-gray-700 bg-white"
+                        />
+                        <span className="text-[9px] text-gray-400">W/m²K</span>
+                      </div>
+                    )}
                   </div>
                 )
               })}

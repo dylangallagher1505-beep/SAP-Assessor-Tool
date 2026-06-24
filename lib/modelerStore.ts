@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { persist, createJSONStorage } from 'zustand/middleware'
 
 // ─── Geometry primitives ───────────────────────────────────────────────────
 
@@ -7,11 +8,15 @@ export interface Point2D {
   y: number
 }
 
+export type WallType = 'external' | 'party' | 'internal'
+
 export interface Wall {
   id: string
   name: string
   start: Point2D
   end: Point2D
+  wallType: WallType  // SAP: only external walls count toward heat loss
+  uValue: number      // W/m²K — defaults vary by wall type
 }
 
 // ─── Openings ────────────────────────────────────────────────────────────────
@@ -95,8 +100,8 @@ interface ModelerState {
   updateStory: (id: string, patch: Partial<Omit<Story, 'id' | 'walls' | 'footprintPolygon' | 'openings'>>) => void
   setActiveStory: (id: string) => void
 
-  addWall: (storyId: string, wall: Omit<Wall, 'id' | 'name'>, name?: string) => void
-  updateWall: (storyId: string, wallId: string, patch: Partial<Pick<Wall, 'name'>>) => void
+  addWall: (storyId: string, wall: Pick<Wall, 'start' | 'end'> & Partial<Pick<Wall, 'wallType' | 'uValue'>>, name?: string) => void
+  updateWall: (storyId: string, wallId: string, patch: Partial<Pick<Wall, 'name' | 'wallType' | 'uValue'>>) => void
   removeWall: (storyId: string, wallId: string) => void
   undoWall: (storyId: string) => void
   clearWalls: (storyId: string) => void
@@ -141,7 +146,9 @@ function makeStory(index: number): Story {
 
 const initial = makeStory(0)
 
-export const useModelerStore = create<ModelerState>((set) => ({
+export const useModelerStore = create<ModelerState>()(
+  persist(
+    (set) => ({
   stories: [initial],
   activeStoryId: initial.id,
   selectedWallId: null,
@@ -189,7 +196,8 @@ export const useModelerStore = create<ModelerState>((set) => ({
         stories: s.stories.map((st) => {
           if (st.id !== storyId) return st
           const autoName = name ?? `Wall ${st.walls.length + 1}`
-          return { ...st, walls: [...st.walls, { ...wall, id: uid(), name: autoName }] }
+          const defaults = { wallType: 'external' as WallType, uValue: 0.18 }
+          return { ...st, walls: [...st.walls, { ...defaults, ...wall, id: uid(), name: autoName }] }
         }),
       }
     }),
@@ -262,6 +270,8 @@ export const useModelerStore = create<ModelerState>((set) => ({
           const walls: Wall[] = polygon.map((pt, i) => ({
             id: uid(),
             name: `Wall ${i + 1}`,
+            wallType: 'external' as WallType,
+            uValue: 0.18,
             start: pt,
             end: polygon[(i + 1) % polygon.length],
           }))
@@ -316,4 +326,18 @@ export const useModelerStore = create<ModelerState>((set) => ({
 
   setDrawingTool: (t) => set({ drawingTool: t }),
   setGridSize: (m) => set({ gridSizeM: m }),
-}))
+    }),
+    {
+      name: 'sap-modeler-v1',
+      storage: createJSONStorage(() => localStorage),
+      // Persist only model data — not transient UI state
+      partialize: (s) => ({
+        stories: s.stories,
+        activeStoryId: s.activeStoryId,
+        roofConfig: s.roofConfig,
+        showRoof: s.showRoof,
+        gridSizeM: s.gridSizeM,
+      }),
+    }
+  )
+)
