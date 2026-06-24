@@ -1,6 +1,6 @@
 'use client'
-import { useRef, useEffect, useCallback, useState, useRef as useRefAlias } from 'react'
-import { useModelerStore, Point2D } from '@/lib/modelerStore'
+import { useRef, useEffect, useCallback, useState } from 'react'
+import { useModelerStore, Point2D, Wall } from '@/lib/modelerStore'
 import { ZoomIn, ZoomOut, Maximize2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Trash2 } from 'lucide-react'
 
 const CANVAS_PX = 800
@@ -26,6 +26,19 @@ function snapToGrid(p: Point2D, gridSize: number): Point2D {
     x: Math.round(p.x / gridSize) * gridSize,
     y: Math.round(p.y / gridSize) * gridSize,
   }
+}
+
+function snapToVertex(p: Point2D, walls: Wall[], gridSize: number): Point2D {
+  const snapRadiusM = gridSize * 0.8
+  let best: Point2D | null = null
+  let bestDist = snapRadiusM
+  for (const w of walls) {
+    for (const v of [w.start, w.end]) {
+      const d = Math.sqrt((v.x - p.x) ** 2 + (v.y - p.y) ** 2)
+      if (d < bestDist) { bestDist = d; best = v }
+    }
+  }
+  return best ?? p
 }
 
 function snapToAngle(start: Point2D, end: Point2D): Point2D {
@@ -54,7 +67,7 @@ export default function DrawingCanvas({ className }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const lengthInputRef = useRef<HTMLInputElement>(null)
 
-  const { stories, activeStoryId, drawingTool, gridSizeM, addWall, clearWalls, setFootprint, closePolygon, selectedWallId, setSelectedWallId, removeWall, undoWall, wallHistory } =
+  const { stories, activeStoryId, drawingTool, gridSizeM, addWall, clearWalls, setFootprint, closePolygon, registerRoom, selectedWallId, setSelectedWallId, removeWall, undoWall, wallHistory, moveVertex } =
     useModelerStore()
   const activeStory = stories.find((s) => s.id === activeStoryId)
 
@@ -72,6 +85,7 @@ export default function DrawingCanvas({ className }: Props) {
   // ── Drawing state ───────────────────────────────────────────────────────────
   const [pendingStart, setPendingStart] = useState<Point2D | null>(null)
   const [mouseWorld, setMouseWorld] = useState<Point2D>({ x: 0, y: 0 })
+  const [snappedToVertex, setSnappedToVertex] = useState(false)
   const [polyPoints, setPolyPoints] = useState<Point2D[]>([])
 
   // Keyboard measurement input
@@ -85,6 +99,13 @@ export default function DrawingCanvas({ className }: Props) {
 
   // Hovered wall (local only — no need for store)
   const [hoveredWallId, setHoveredWallId] = useState<string | null>(null)
+
+  // Ortho lock (Shift key)
+  const [shiftDown, setShiftDown] = useState(false)
+
+  // Vertex drag state (select tool)
+  const [dragVertex, setDragVertex] = useState<{ roomIdx: number; vertIdx: number } | null>(null)
+  const isDraggingVertex = useRef(false)
 
   // Clear selection on storey switch
   useEffect(() => {
@@ -128,8 +149,14 @@ export default function DrawingCanvas({ className }: Props) {
 
   const getWorldPos = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const { cx, cy } = getCanvasPos(e)
-    return snapToGrid(canvasToWorld(cx, cy, pan, zoom), gridSizeM)
-  }, [pan, zoom, gridSizeM, getCanvasPos])
+    const gridPt = snapToGrid(canvasToWorld(cx, cy, pan, zoom), gridSizeM)
+    const story = stories.find(s => s.id === activeStoryId)
+    if (!story) return gridPt
+    const snapped = snapToVertex(gridPt, story.walls, gridSizeM)
+    const isSnapped = snapped !== gridPt
+    setSnappedToVertex(isSnapped)
+    return snapped
+  }, [pan, zoom, gridSizeM, getCanvasPos, stories, activeStoryId])
 
   // Compute the live preview end point (keyboard overrides mouse)
   const previewEnd = useCallback((start: Point2D): Point2D => {
@@ -143,8 +170,16 @@ export default function DrawingCanvas({ className }: Props) {
       const projLen = Math.max(0, proj)
       return { x: start.x + kbDir.x * projLen, y: start.y + kbDir.y * projLen }
     }
+    if (shiftDown) {
+      // Ortho lock: constrain to nearest 90° axis
+      const dx = mouseWorld.x - start.x
+      const dy = mouseWorld.y - start.y
+      return Math.abs(dx) >= Math.abs(dy)
+        ? { x: mouseWorld.x, y: start.y }
+        : { x: start.x, y: mouseWorld.y }
+    }
     return snapToAngle(start, mouseWorld)
-  }, [kbLength, kbDir, mouseWorld])
+  }, [kbLength, kbDir, mouseWorld, shiftDown])
 
   function nextWallName(): string {
     const count = (activeStory?.walls.length ?? 0) + 1
@@ -165,7 +200,7 @@ export default function DrawingCanvas({ className }: Props) {
       const snapDist = Math.sqrt((end.x - first.x) ** 2 + (end.y - first.y) ** 2)
       if (snapDist <= gridSizeM * 0.6) {
         addWall(activeStoryId, { start: pendingStart, end: first }, name)
-        setFootprint(activeStoryId, [...wallChain, pendingStart])
+        registerRoom(activeStoryId, [...wallChain, pendingStart])
         setPendingStart(null)
         setWallChain([])
         setKbLength(''); setKbDir(null); setWallName('')
@@ -187,7 +222,7 @@ export default function DrawingCanvas({ className }: Props) {
     const firstPoint = wallChain[0]
     const closingName = wallName.trim() || nextWallName()
     addWall(activeStoryId, { start: pendingStart, end: firstPoint }, closingName)
-    setFootprint(activeStoryId, [...wallChain, pendingStart])
+    registerRoom(activeStoryId, [...wallChain, pendingStart])
     setPendingStart(null)
     setWallChain([])
     setKbLength('')
@@ -196,6 +231,14 @@ export default function DrawingCanvas({ className }: Props) {
   }
 
   // ── Keyboard shortcuts (Ctrl+Z undo, Delete key) ─────────────────────────
+
+  useEffect(() => {
+    const onShiftDown = (e: KeyboardEvent) => { if (e.key === 'Shift') setShiftDown(true) }
+    const onShiftUp = (e: KeyboardEvent) => { if (e.key === 'Shift') setShiftDown(false) }
+    window.addEventListener('keydown', onShiftDown)
+    window.addEventListener('keyup', onShiftUp)
+    return () => { window.removeEventListener('keydown', onShiftDown); window.removeEventListener('keyup', onShiftUp) }
+  }, [])
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -225,10 +268,21 @@ export default function DrawingCanvas({ className }: Props) {
           setSelectedWallId(null)
         }
       }
+
+      if (e.key === 'Escape') {
+        // Cancel in-progress drawing
+        if (pendingStart) {
+          setPendingStart(null)
+          setWallChain([])
+          setKbLength(''); setKbDir(null); setWallName('')
+        }
+        if (polyPoints.length > 0) setPolyPoints([])
+        setSelectedWallId(null)
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [pendingStart, wallChain, activeStory, activeStoryId, selectedWallId, removeWall, undoWall, setSelectedWallId])
+  }, [pendingStart, wallChain, polyPoints, activeStory, activeStoryId, selectedWallId, removeWall, undoWall, setSelectedWallId])
 
   // ── Zoom / Pan ────────────────────────────────────────────────────────────
 
@@ -278,6 +332,23 @@ export default function DrawingCanvas({ className }: Props) {
       isPanning.current = true
       setCursorPanning(true)
       panStart.current = { mx: e.clientX, my: e.clientY, pan: { ...pan } }
+      return
+    }
+    // Vertex drag — select tool, left button
+    if (e.button === 0 && drawingTool === 'select' && activeStory) {
+      const pt = getWorldPos(e)
+      const snapR = gridSizeM * 0.8
+      for (let ri = 0; ri < activeStory.rooms.length; ri++) {
+        const room = activeStory.rooms[ri]
+        for (let vi = 0; vi < room.polygon.length; vi++) {
+          const v = room.polygon[vi]
+          if (Math.sqrt((v.x - pt.x) ** 2 + (v.y - pt.y) ** 2) < snapR) {
+            setDragVertex({ roomIdx: ri, vertIdx: vi })
+            isDraggingVertex.current = true
+            return
+          }
+        }
+      }
     }
   }
 
@@ -291,7 +362,16 @@ export default function DrawingCanvas({ className }: Props) {
       })
       return
     }
-    setMouseWorld(getWorldPos(e))
+    const pt = getWorldPos(e)
+    setMouseWorld(pt)
+
+    // Vertex drag
+    if (isDraggingVertex.current && dragVertex && activeStory && activeStoryId) {
+      const room = activeStory.rooms[dragVertex.roomIdx]
+      if (room) moveVertex(activeStoryId, room.id, dragVertex.vertIdx, pt)
+      return
+    }
+
     // Hover detection — only when not actively drawing
     if (!pendingStart && polyPoints.length === 0) {
       const { cx, cy } = getCanvasPos(e)
@@ -301,6 +381,10 @@ export default function DrawingCanvas({ className }: Props) {
 
   function handleMouseUp(e: React.MouseEvent<HTMLCanvasElement>) {
     if (isPanning.current) { isPanning.current = false; setCursorPanning(false); return }
+    if (isDraggingVertex.current) {
+      isDraggingVertex.current = false
+      setDragVertex(null)
+    }
   }
 
   // ── Canvas drawing ─────────────────────────────────────────────────────────
@@ -404,30 +488,50 @@ export default function DrawingCanvas({ className }: Props) {
         }
       }
 
-      if (story.footprintPolygon.length >= 3) {
-        // Filled footprint polygon — blue tint
-        ctx.strokeStyle = isActive ? '#3b82f6' : '#93c5fd'
-        ctx.fillStyle = isActive ? 'rgba(59,130,246,0.06)' : 'rgba(59,130,246,0.03)'
-        ctx.lineWidth = isActive ? 1.5 : 1
-        ctx.setLineDash(isActive ? [] : [4, 4])
-        ctx.beginPath()
-        const first = worldToCanvas(story.footprintPolygon[0], pan, zoom)
-        ctx.moveTo(first.x, first.y)
-        for (let i = 1; i < story.footprintPolygon.length; i++) {
-          const pt = worldToCanvas(story.footprintPolygon[i], pan, zoom)
-          ctx.lineTo(pt.x, pt.y)
-        }
-        ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.setLineDash([])
+      // Render room polygons (use rooms[] if present, fall back to footprintPolygon)
+      const roomPolygons = story.rooms.length > 0
+        ? story.rooms.map(r => ({ polygon: r.polygon, label: r.name }))
+        : story.footprintPolygon.length >= 3
+          ? [{ polygon: story.footprintPolygon, label: story.name }]
+          : []
 
-        // Room label at centroid
-        const cxW = story.footprintPolygon.reduce((s, p) => s + p.x, 0) / story.footprintPolygon.length
-        const cyW = story.footprintPolygon.reduce((s, p) => s + p.y, 0) / story.footprintPolygon.length
-        const cc = worldToCanvas({ x: cxW, y: cyW }, pan, zoom)
-        ctx.font = `bold ${Math.min(14, zoom * 0.5)}px sans-serif`
-        ctx.textAlign = 'center'
-        ctx.fillStyle = isActive ? '#1d4ed8' : '#93c5fd'
-        ctx.fillText(story.name, cc.x, cc.y)
-        ctx.textAlign = 'left'
+      if (roomPolygons.length > 0) {
+        for (const { polygon, label } of roomPolygons) {
+          ctx.strokeStyle = isActive ? '#3b82f6' : '#93c5fd'
+          ctx.fillStyle = isActive ? 'rgba(59,130,246,0.06)' : 'rgba(59,130,246,0.03)'
+          ctx.lineWidth = isActive ? 1.5 : 1
+          ctx.setLineDash(isActive ? [] : [4, 4])
+          ctx.beginPath()
+          const first = worldToCanvas(polygon[0], pan, zoom)
+          ctx.moveTo(first.x, first.y)
+          for (let i = 1; i < polygon.length; i++) {
+            const pt = worldToCanvas(polygon[i], pan, zoom)
+            ctx.lineTo(pt.x, pt.y)
+          }
+          ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.setLineDash([])
+
+          // Room label at centroid
+          const cxW = polygon.reduce((s, p) => s + p.x, 0) / polygon.length
+          const cyW = polygon.reduce((s, p) => s + p.y, 0) / polygon.length
+          const cc = worldToCanvas({ x: cxW, y: cyW }, pan, zoom)
+          ctx.font = `bold ${Math.min(14, zoom * 0.5)}px sans-serif`
+          ctx.textAlign = 'center'
+          ctx.fillStyle = isActive ? '#1d4ed8' : '#93c5fd'
+          ctx.fillText(label, cc.x, cc.y)
+          ctx.textAlign = 'left'
+
+          // Vertex handles in select mode
+          if (drawingTool === 'select' && isActive) {
+            for (const v of polygon) {
+              const vp = worldToCanvas(v, pan, zoom)
+              ctx.fillStyle = '#2563eb'
+              ctx.strokeStyle = '#fff'
+              ctx.lineWidth = 1.5
+              ctx.beginPath(); ctx.arc(vp.x, vp.y, 5, 0, Math.PI * 2)
+              ctx.fill(); ctx.stroke()
+            }
+          }
+        }
       } else if (isActive && story.footprintPolygon.length >= 2) {
         ctx.strokeStyle = '#3b82f6'
         ctx.lineWidth = 1.5
@@ -456,6 +560,35 @@ export default function DrawingCanvas({ className }: Props) {
       }
       const mp = worldToCanvas(mouseWorld, pan, zoom)
       ctx.lineTo(mp.x, mp.y); ctx.stroke()
+
+      // Filled preview with live area
+      if (polyPoints.length >= 2) {
+        const previewPoly = [...polyPoints, mouseWorld]
+        ctx.fillStyle = 'rgba(245,158,11,0.08)'
+        ctx.beginPath()
+        const fp2 = worldToCanvas(previewPoly[0], pan, zoom)
+        ctx.moveTo(fp2.x, fp2.y)
+        for (let i = 1; i < previewPoly.length; i++) {
+          const pp = worldToCanvas(previewPoly[i], pan, zoom)
+          ctx.lineTo(pp.x, pp.y)
+        }
+        ctx.closePath(); ctx.fill()
+
+        // Live area at centroid
+        const area = Math.abs(previewPoly.reduce((s, p, i) => {
+          const j = (i + 1) % previewPoly.length
+          return s + p.x * previewPoly[j].y - previewPoly[j].x * p.y
+        }, 0) / 2)
+        const cxW = previewPoly.reduce((s, p) => s + p.x, 0) / previewPoly.length
+        const cyW = previewPoly.reduce((s, p) => s + p.y, 0) / previewPoly.length
+        const cc = worldToCanvas({ x: cxW, y: cyW }, pan, zoom)
+        ctx.font = 'bold 12px monospace'
+        ctx.textAlign = 'center'
+        ctx.fillStyle = '#92400e'
+        ctx.fillText(`${area.toFixed(1)} m²`, cc.x, cc.y)
+        ctx.textAlign = 'left'
+      }
+
       for (const pt of polyPoints) {
         const pp = worldToCanvas(pt, pan, zoom)
         ctx.fillStyle = '#f59e0b'
@@ -526,11 +659,20 @@ export default function DrawingCanvas({ className }: Props) {
     ctx.beginPath(); ctx.moveTo(mp.x, 0); ctx.lineTo(mp.x, CANVAS_PX); ctx.stroke()
     ctx.beginPath(); ctx.moveTo(0, mp.y); ctx.lineTo(CANVAS_PX, mp.y); ctx.stroke()
 
+    // Vertex snap indicator
+    if (snappedToVertex) {
+      ctx.strokeStyle = '#16a34a'
+      ctx.lineWidth = 2
+      ctx.beginPath(); ctx.arc(mp.x, mp.y, 7, 0, Math.PI * 2); ctx.stroke()
+      ctx.fillStyle = 'rgba(22,163,74,0.15)'
+      ctx.beginPath(); ctx.arc(mp.x, mp.y, 7, 0, Math.PI * 2); ctx.fill()
+    }
+
     // Coords + zoom
     ctx.fillStyle = 'rgba(71,85,105,0.6)'
     ctx.font = '10px monospace'
     ctx.fillText(`(${mouseWorld.x.toFixed(2)}, ${mouseWorld.y.toFixed(2)})  ×${(zoom / BASE_ZOOM).toFixed(1)}`, 6, CANVAS_PX - 6)
-  }, [stories, activeStoryId, pendingStart, mouseWorld, polyPoints, pan, zoom, gridSizeM, drawingTool, previewEnd, kbDir, BASE_ZOOM, wallChain, selectedWallId, hoveredWallId])
+  }, [stories, activeStoryId, pendingStart, mouseWorld, polyPoints, pan, zoom, gridSizeM, drawingTool, previewEnd, kbDir, BASE_ZOOM, wallChain, selectedWallId, hoveredWallId, snappedToVertex])
 
   // ── Click ─────────────────────────────────────────────────────────────────
   function handleClick(e: React.MouseEvent<HTMLCanvasElement>) {
@@ -690,15 +832,15 @@ export default function DrawingCanvas({ className }: Props) {
       {/* Status bar */}
       <div className="flex items-center gap-2 text-xs text-gray-500">
         <span>Active: <span className="text-blue-600 font-medium">{activeStory?.name ?? '—'}</span></span>
-        {activeStory && activeStory.footprintPolygon.length >= 3 && !pendingStart && (
+        {activeStory && (activeStory.rooms.length > 0 || activeStory.footprintPolygon.length >= 3) && !pendingStart && (
           <button
             onClick={() => { if (activeStoryId) clearWalls(activeStoryId) }}
             className="px-2 py-0.5 rounded bg-white hover:bg-red-50 text-gray-500 hover:text-red-600 border border-gray-200 text-xs"
-          >↺ Redraw room</button>
+          >↺ Clear floor</button>
         )}
         <span className="ml-auto text-gray-400">
-          {drawingTool === 'wall' && !pendingStart && (activeStory?.footprintPolygon.length ?? 0) >= 3 && 'Room closed — click Redraw to edit'}
-          {drawingTool === 'wall' && !pendingStart && (activeStory?.footprintPolygon.length ?? 0) < 3 && 'Click canvas to start wall'}
+          {drawingTool === 'wall' && !pendingStart && (activeStory?.rooms.length ?? 0) > 0 && `${activeStory?.rooms.length} room${activeStory?.rooms.length !== 1 ? 's' : ''} — draw to add another`}
+          {drawingTool === 'wall' && !pendingStart && (activeStory?.rooms.length ?? 0) === 0 && (activeStory?.footprintPolygon.length ?? 0) < 3 && 'Click canvas to start wall'}
           {drawingTool === 'wall' && pendingStart && (wallChain.length >= 2
             ? `${wallChain.length + 1} pts — type length + direction • Enter to commit • Right-click to undo • Close Shape to finish`
             : 'Type length → pick direction or click canvas • Right-click to undo')}
