@@ -26,6 +26,9 @@ export default function StoryPanel() {
   const [wallsOpen, setWallsOpen] = useState(true)
 
   const activeStory = stories.find(s => s.id === activeStoryId)
+  const activeStoryIndex = stories.findIndex(s => s.id === activeStoryId)
+  const isTopStory = activeStoryIndex === stories.length - 1
+  const isGroundFloor = activeStoryIndex === 0
 
   return (
     <div className="flex flex-col gap-3 p-3 bg-white border border-gray-200 rounded-xl text-sm h-full overflow-y-auto shadow-sm">
@@ -190,45 +193,54 @@ export default function StoryPanel() {
             onClick={() => setRoofOpen((v) => !v)}
           >
             {roofOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            Roof
+            {isTopStory ? 'Roof' : 'Ceiling'}
           </button>
-          <label className="flex items-center gap-1 text-xs text-gray-500 cursor-pointer">
-            <input type="checkbox" checked={showRoof} onChange={(e) => setShowRoof(e.target.checked)} />
-            Show
-          </label>
+          {isTopStory && (
+            <label className="flex items-center gap-1 text-xs text-gray-500 cursor-pointer">
+              <input type="checkbox" checked={showRoof} onChange={(e) => setShowRoof(e.target.checked)} />
+              Show
+            </label>
+          )}
         </div>
 
         {roofOpen && (
-          <div className="mt-2 flex flex-col gap-2 text-xs">
-            <div>
-              <label className="text-gray-500">Type</label>
-              <select
-                value={roofConfig.type}
-                onChange={(e) => updateRoof({ type: e.target.value as any })}
-                className="block mt-0.5 w-full bg-white border border-gray-200 rounded px-2 py-1 text-gray-700 focus:outline-none focus:border-blue-400"
-              >
-                <option value="flat">Flat</option>
-                <option value="shed">Shed (Mono-pitch)</option>
-                <option value="gable">Cross-Gable</option>
-                <option value="hip">Hip</option>
-              </select>
-            </div>
-
-            {roofConfig.type !== 'flat' && (
+          !isTopStory ? (
+            <p className="mt-2 text-xs text-gray-400 italic">
+              Flat ceiling — covered by {stories[activeStoryIndex + 1]?.name ?? 'floor above'}.
+              Roof controls apply to the top floor only.
+            </p>
+          ) : (
+            <div className="mt-2 flex flex-col gap-2 text-xs">
               <div>
-                <label className="text-gray-500">Pitch: {roofConfig.pitchDegrees}°</label>
-                <input
-                  type="range"
-                  min={5}
-                  max={60}
-                  step={1}
-                  value={roofConfig.pitchDegrees}
-                  onChange={(e) => updateRoof({ pitchDegrees: parseInt(e.target.value) })}
-                  className="w-full mt-0.5 accent-blue-500"
-                />
+                <label className="text-gray-500">Type</label>
+                <select
+                  value={roofConfig.type}
+                  onChange={(e) => updateRoof({ type: e.target.value as any })}
+                  className="block mt-0.5 w-full bg-white border border-gray-200 rounded px-2 py-1 text-gray-700 focus:outline-none focus:border-blue-400"
+                >
+                  <option value="flat">Flat</option>
+                  <option value="shed">Shed (Mono-pitch)</option>
+                  <option value="gable">Cross-Gable</option>
+                  <option value="hip">Hip</option>
+                </select>
               </div>
-            )}
-          </div>
+
+              {roofConfig.type !== 'flat' && (
+                <div>
+                  <label className="text-gray-500">Pitch: {roofConfig.pitchDegrees}°</label>
+                  <input
+                    type="range"
+                    min={5}
+                    max={60}
+                    step={1}
+                    value={roofConfig.pitchDegrees}
+                    onChange={(e) => updateRoof({ pitchDegrees: parseInt(e.target.value) })}
+                    className="w-full mt-0.5 accent-blue-500"
+                  />
+                </div>
+              )}
+            </div>
+          )
         )}
       </div>
     </div>
