@@ -58,6 +58,7 @@ export default function DrawingCanvas({ className }: Props) {
     useModelerStore()
   const activeStory = stories.find((s) => s.id === activeStoryId)
 
+
   // ── View state ──────────────────────────────────────────────────────────────
   const BASE_ZOOM = CANVAS_PX / 20           // 20m default view
   const [zoom, setZoom] = useState(BASE_ZOOM)
@@ -80,7 +81,42 @@ export default function DrawingCanvas({ className }: Props) {
   // Track the chain of placed vertices so we can undo and close shape
   const [wallChain, setWallChain] = useState<Point2D[]>([])
 
+  // Selected wall for measurement display
+  const [selectedWallId, setSelectedWallId] = useState<string | null>(null)
+  const [hoveredWallId, setHoveredWallId] = useState<string | null>(null)
+
+  // Clear selection on storey switch
+  useEffect(() => {
+    setSelectedWallId(null)
+    setHoveredWallId(null)
+  }, [activeStoryId])
+
   // ── Helpers ──────────────────────────────────────────────────────────────────
+
+  // Returns distance in canvas pixels from point (cx,cy) to line segment a→b
+  function distToSegmentPx(
+    cx: number, cy: number,
+    ax: number, ay: number,
+    bx: number, by: number
+  ): number {
+    const dx = bx - ax, dy = by - ay
+    const lenSq = dx * dx + dy * dy
+    if (lenSq < 1) return Math.sqrt((cx - ax) ** 2 + (cy - ay) ** 2)
+    const t = Math.max(0, Math.min(1, ((cx - ax) * dx + (cy - ay) * dy) / lenSq))
+    return Math.sqrt((cx - (ax + t * dx)) ** 2 + (cy - (ay + t * dy)) ** 2)
+  }
+
+  function wallNearPoint(cx: number, cy: number, threshold = 8): string | null {
+    const story = stories.find(s => s.id === activeStoryId)
+    if (!story) return null
+    for (const w of story.walls) {
+      const a = worldToCanvas(w.start, pan, zoom)
+      const b = worldToCanvas(w.end, pan, zoom)
+      if (distToSegmentPx(cx, cy, a.x, a.y, b.x, b.y) < threshold) return w.id
+    }
+    return null
+  }
+
   const getCanvasPos = useCallback((e: MouseEvent | React.MouseEvent): { cx: number; cy: number } => {
     const rect = canvasRef.current!.getBoundingClientRect()
     return {
@@ -199,6 +235,11 @@ export default function DrawingCanvas({ className }: Props) {
       return
     }
     setMouseWorld(getWorldPos(e))
+    // Hover detection — only when not actively drawing
+    if (!pendingStart && polyPoints.length === 0) {
+      const { cx, cy } = getCanvasPos(e)
+      setHoveredWallId(wallNearPoint(cx, cy, 10))
+    }
   }
 
   function handleMouseUp(e: React.MouseEvent<HTMLCanvasElement>) {
@@ -254,26 +295,39 @@ export default function DrawingCanvas({ className }: Props) {
     // Stories
     for (const story of stories) {
       const isActive = story.id === activeStoryId
-      ctx.strokeStyle = isActive ? '#1e40af' : '#94a3b8'
-      ctx.lineWidth = isActive ? 2.5 : 1
       for (const w of story.walls) {
+        const isSelected = w.id === selectedWallId
+        const isHovered = w.id === hoveredWallId && !pendingStart && polyPoints.length === 0
         const a = worldToCanvas(w.start, pan, zoom)
         const b = worldToCanvas(w.end, pan, zoom)
+
+        // Wall stroke
+        ctx.strokeStyle = isSelected ? '#f59e0b' : isHovered ? '#fb923c' : (isActive ? '#1e40af' : '#94a3b8')
+        ctx.lineWidth = isSelected ? 3.5 : isHovered ? 3 : (isActive ? 2.5 : 1)
         ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke()
+
         if (isActive) {
-          ctx.fillStyle = '#3b82f6'
+          ctx.fillStyle = isSelected ? '#f59e0b' : '#3b82f6'
           ctx.beginPath(); ctx.arc(a.x, a.y, 3, 0, Math.PI * 2); ctx.fill()
           ctx.beginPath(); ctx.arc(b.x, b.y, 3, 0, Math.PI * 2); ctx.fill()
-          // Wall length label
+
+          // Dimension label — always shown on active storey walls
           const dx = w.end.x - w.start.x, dy = w.end.y - w.start.y
           const len = Math.sqrt(dx * dx + dy * dy)
-          if (len > 0.1 && zoom > BASE_ZOOM * 0.8) {
+          if (len > 0.1) {
             const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
-            ctx.fillStyle = 'rgba(30,64,175,0.7)'
-            ctx.font = `${Math.min(11, zoom * 0.4)}px monospace`
-            ctx.fillText(`${len.toFixed(2)}m`, mid.x + 3, mid.y - 3)
+            // Offset label perpendicular to wall
+            const nx = -dy / len, ny = dx / len
+            const offsetPx = 10
+            const lx = mid.x + nx * offsetPx, ly = mid.y + ny * offsetPx
+            ctx.font = `${isSelected ? 'bold ' : ''}${Math.min(11, zoom * 0.4 + 7)}px monospace`
+            ctx.fillStyle = isSelected ? '#b45309' : 'rgba(30,64,175,0.7)'
+            ctx.textAlign = 'center'
+            ctx.fillText(`${len.toFixed(2)}m`, lx, ly)
+            ctx.textAlign = 'left'
           }
-          // Draw openings on this wall as coloured tick marks
+
+          // Openings tick marks
           if (len > 0.01) {
             const wallOpenings = story.openings.filter(o => o.wallId === w.id)
             for (const op of wallOpenings) {
@@ -284,8 +338,6 @@ export default function DrawingCanvas({ className }: Props) {
               ctx.strokeStyle = op.type === 'window' ? '#0ea5e9' : '#f59e0b'
               ctx.lineWidth = 4
               ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke()
-              ctx.lineWidth = isActive ? 2.5 : 1
-              ctx.strokeStyle = isActive ? '#1e40af' : '#94a3b8'
             }
           }
         }
@@ -410,13 +462,22 @@ export default function DrawingCanvas({ className }: Props) {
     ctx.fillStyle = 'rgba(71,85,105,0.6)'
     ctx.font = '10px monospace'
     ctx.fillText(`(${mouseWorld.x.toFixed(2)}, ${mouseWorld.y.toFixed(2)})  ×${(zoom / BASE_ZOOM).toFixed(1)}`, 6, CANVAS_PX - 6)
-  }, [stories, activeStoryId, pendingStart, mouseWorld, polyPoints, pan, zoom, gridSizeM, drawingTool, previewEnd, kbDir, BASE_ZOOM, wallChain])
+  }, [stories, activeStoryId, pendingStart, mouseWorld, polyPoints, pan, zoom, gridSizeM, drawingTool, previewEnd, kbDir, BASE_ZOOM, wallChain, selectedWallId, hoveredWallId])
 
   // ── Click ─────────────────────────────────────────────────────────────────
   function handleClick(e: React.MouseEvent<HTMLCanvasElement>) {
     if (isPanning.current) return
     if (!activeStoryId) return
     const pt = getWorldPos(e)
+    const { cx, cy } = getCanvasPos(e)
+
+    // Wall selection — available in select mode OR when room is closed (wall mode, no pending)
+    const canSelect = drawingTool === 'select' || (drawingTool === 'wall' && !pendingStart)
+    if (canSelect) {
+      const hit = wallNearPoint(cx, cy, 10)
+      if (hit) { setSelectedWallId(hit === selectedWallId ? null : hit); return }
+      else setSelectedWallId(null)
+    }
 
     if (drawingTool === 'wall') {
       // Block starting a new wall if this storey already has a closed room
@@ -534,6 +595,21 @@ export default function DrawingCanvas({ className }: Props) {
 
   const zoomPct = Math.round((zoom / BASE_ZOOM) * 100)
 
+  // Measurement data for selected wall
+  const selectedWall = activeStory?.walls.find(w => w.id === selectedWallId) ?? null
+  const selectedWallMeasure = selectedWall ? (() => {
+    const dx = selectedWall.end.x - selectedWall.start.x
+    const dy = selectedWall.end.y - selectedWall.start.y
+    const len = Math.sqrt(dx * dx + dy * dy)
+    const area = len * (activeStory?.storyHeight ?? 2.5)
+    // Bearing: angle from north (Y+), clockwise
+    const bearingRad = Math.atan2(dx, dy)
+    const bearingDeg = ((bearingRad * 180 / Math.PI) + 360) % 360
+    const cardinals = ['N','NE','E','SE','S','SW','W','NW']
+    const cardinal = cardinals[Math.round(bearingDeg / 45) % 8]
+    return { len, area, bearingDeg, cardinal }
+  })() : null
+
   return (
     <div className={`flex flex-col gap-2 ${className ?? ''}`} ref={containerRef}>
       {/* Status bar */}
@@ -552,9 +628,20 @@ export default function DrawingCanvas({ className }: Props) {
             ? `${wallChain.length + 1} pts — type length + direction • Enter to commit • Right-click to undo • Close Shape to finish`
             : 'Type length → pick direction or click canvas • Right-click to undo')}
           {drawingTool === 'polygon' && (polyPoints.length === 0 ? 'Click to place polygon points' : `${polyPoints.length} pts — click near start or double-click to close`)}
-          {drawingTool === 'select' && 'Alt+drag or middle-mouse to pan • scroll to zoom'}
+          {drawingTool === 'select' && (selectedWallId ? 'Wall selected — click another wall or empty space to deselect' : 'Click a wall to measure it • Alt+drag or middle-mouse to pan')}
         </span>
       </div>
+
+      {/* Selected wall measurement panel */}
+      {selectedWallMeasure && (
+        <div className="flex items-center gap-4 px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl text-xs shadow-sm">
+          <span className="font-semibold text-amber-800">Wall selected</span>
+          <span className="text-amber-700">Length: <span className="font-mono font-bold">{selectedWallMeasure.len.toFixed(2)} m</span></span>
+          <span className="text-amber-700">Area: <span className="font-mono font-bold">{selectedWallMeasure.area.toFixed(2)} m²</span></span>
+          <span className="text-amber-700">Bearing: <span className="font-mono font-bold">{selectedWallMeasure.cardinal} ({selectedWallMeasure.bearingDeg.toFixed(0)}°)</span></span>
+          <button onClick={() => setSelectedWallId(null)} className="ml-auto text-amber-500 hover:text-amber-700">✕</button>
+        </div>
+      )}
 
       {/* Keyboard measurement panel — shown when a wall is in progress */}
       {drawingTool === 'wall' && pendingStart && (
