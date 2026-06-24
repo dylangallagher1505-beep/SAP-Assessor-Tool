@@ -17,6 +17,8 @@ export interface Wall {
   end: Point2D
   wallType: WallType  // SAP: only external walls count toward heat loss
   uValue: number      // W/m²K — defaults vary by wall type
+  heightLeft?: number  // top-left corner height in metres (defaults to storyHeight)
+  heightRight?: number // top-right corner height in metres (defaults to storyHeight)
 }
 
 // ─── Openings ────────────────────────────────────────────────────────────────
@@ -111,7 +113,7 @@ interface ModelerState {
   setActiveStory: (id: string) => void
 
   addWall: (storyId: string, wall: Pick<Wall, 'start' | 'end'> & Partial<Pick<Wall, 'wallType' | 'uValue'>>, name?: string) => void
-  updateWall: (storyId: string, wallId: string, patch: Partial<Pick<Wall, 'name' | 'wallType' | 'uValue'>>) => void
+  updateWall: (storyId: string, wallId: string, patch: Partial<Pick<Wall, 'name' | 'wallType' | 'uValue' | 'heightLeft' | 'heightRight'>>) => void
   removeWall: (storyId: string, wallId: string) => void
   undoWall: (storyId: string) => void
   clearWalls: (storyId: string) => void

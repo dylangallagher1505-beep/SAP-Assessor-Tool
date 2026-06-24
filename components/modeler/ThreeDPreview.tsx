@@ -33,34 +33,51 @@ function ExtrudedRoom({ story, isActive }: { story: Story; isActive: boolean }) 
   )
 }
 
-// ─── Clickable wall face quad (used for both open and closed rooms) ──────────
+// ─── Tapered wall quad geometry ───────────────────────────────────────────────
+
+function taperedWallGeometry(
+  startX: number, startZ: number,
+  endX: number, endZ: number,
+  baseY: number, hleft: number, hright: number
+): THREE.BufferGeometry {
+  // Four corners: bl, br, tr, tl (world XYZ)
+  const bl: [number, number, number] = [startX, baseY, startZ]
+  const br: [number, number, number] = [endX, baseY, endZ]
+  const tr: [number, number, number] = [endX, baseY + hright, endZ]
+  const tl: [number, number, number] = [startX, baseY + hleft, startZ]
+  // Two triangles: bl-br-tr, bl-tr-tl
+  const pos = new Float32Array([
+    ...bl, ...br, ...tr,
+    ...bl, ...tr, ...tl,
+  ])
+  const geom = new THREE.BufferGeometry()
+  geom.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+  geom.computeVertexNormals()
+  return geom
+}
+
+// ─── Clickable wall face quad (tapered) ──────────────────────────────────────
 
 function WallFaceQuad({ wall, storyId, storyHeight, startHeight, selectedFace, onSelect }: {
   wall: Wall; storyId: string; storyHeight: number; startHeight: number
   selectedFace: SelectedFace; onSelect: (f: SelectedFace) => void
 }) {
-  const { position, rotation, length } = useMemo(() => {
-    const dx = wall.end.x - wall.start.x
-    const dy = wall.end.y - wall.start.y
-    const length = Math.sqrt(dx * dx + dy * dy)
-    const angle = Math.atan2(dy, dx)
-    return {
-      length,
-      rotation: angle,
-      position: [(wall.start.x + wall.end.x) / 2, startHeight + storyHeight / 2, (wall.start.y + wall.end.y) / 2] as [number, number, number],
-    }
-  }, [wall, startHeight, storyHeight])
+  const geom = useMemo(() => {
+    const dx = wall.end.x - wall.start.x, dy = wall.end.y - wall.start.y
+    if (Math.sqrt(dx * dx + dy * dy) < 0.01) return null
+    const hl = wall.heightLeft ?? storyHeight
+    const hr = wall.heightRight ?? storyHeight
+    return taperedWallGeometry(wall.start.x, wall.start.y, wall.end.x, wall.end.y, startHeight, hl, hr)
+  }, [wall, storyHeight, startHeight])
 
-  if (length < 0.01) return null
+  if (!geom) return null
   const isSelected = selectedFace?.type === 'wall' && selectedFace.wallId === wall.id && selectedFace.storyId === storyId
 
   return (
     <mesh
-      position={position}
-      rotation={[0, -rotation, 0]}
+      geometry={geom}
       onClick={(e) => { e.stopPropagation(); onSelect(isSelected ? null : { type: 'wall', storyId, wallId: wall.id }) }}
     >
-      <planeGeometry args={[length, storyHeight]} />
       <meshStandardMaterial
         color={isSelected ? '#f59e0b' : '#3b82f6'}
         opacity={isSelected ? 0.35 : 0.0}
@@ -72,29 +89,29 @@ function WallFaceQuad({ wall, storyId, storyHeight, startHeight, selectedFace, o
   )
 }
 
-// ─── In-progress wall sticks ──────────────────────────────────────────────────
+// ─── Wall solid mesh (tapered) ────────────────────────────────────────────────
 
 function WallMesh({ wall, storyHeight, startHeight, isActive }: {
   wall: Wall; storyHeight: number; startHeight: number; isActive: boolean
 }) {
-  const { position, rotation, length } = useMemo(() => {
-    const dx = wall.end.x - wall.start.x
-    const dy = wall.end.y - wall.start.y
-    const length = Math.sqrt(dx * dx + dy * dy)
-    const angle = Math.atan2(dy, dx)
-    return {
-      length,
-      rotation: angle,
-      position: [(wall.start.x + wall.end.x) / 2, startHeight + storyHeight / 2, (wall.start.y + wall.end.y) / 2] as [number, number, number],
-    }
-  }, [wall, startHeight, storyHeight])
+  const geom = useMemo(() => {
+    const dx = wall.end.x - wall.start.x, dy = wall.end.y - wall.start.y
+    if (Math.sqrt(dx * dx + dy * dy) < 0.01) return null
+    const hl = wall.heightLeft ?? storyHeight
+    const hr = wall.heightRight ?? storyHeight
+    return taperedWallGeometry(wall.start.x, wall.start.y, wall.end.x, wall.end.y, startHeight, hl, hr)
+  }, [wall, storyHeight, startHeight])
 
-  if (length < 0.01) return null
+  if (!geom) return null
 
   return (
-    <mesh position={position} rotation={[0, -rotation, 0]}>
-      <boxGeometry args={[length, storyHeight, 0.15]} />
-      <meshStandardMaterial color={isActive ? '#3b82f6' : '#94a3b8'} opacity={isActive ? 0.8 : 0.4} transparent={!isActive} />
+    <mesh geometry={geom}>
+      <meshStandardMaterial
+        color={isActive ? '#3b82f6' : '#94a3b8'}
+        opacity={isActive ? 0.8 : 0.4}
+        transparent={!isActive}
+        side={THREE.DoubleSide}
+      />
     </mesh>
   )
 }

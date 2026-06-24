@@ -49,7 +49,9 @@ function buildFabricSchedule(stories: ReturnType<typeof useModelerStore.getState
     for (const wall of story.walls) {
       const len = wallLength(wall.start, wall.end)
       if (len < 0.05) continue
-      const grossWallArea = len * story.storyHeight
+      const hl = wall.heightLeft ?? story.storyHeight
+      const hr = wall.heightRight ?? story.storyHeight
+      const grossWallArea = ((hl + hr) / 2) * len
       const wallOpenings = story.openings.filter(o => o.wallId === wall.id)
       const openingArea = wallOpenings.reduce((s, o) => s + o.width * o.height, 0)
       const netArea = Math.max(0, grossWallArea - openingArea)

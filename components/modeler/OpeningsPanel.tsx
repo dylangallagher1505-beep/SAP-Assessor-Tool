@@ -20,6 +20,7 @@ const DEFAULT_OPENING: Omit<Opening, 'id' | 'wallId'> = {
   height: 1.0,
   sillHeight: 0.9,
   uValue: 1.4,
+  gValue: 0.63,
 }
 
 export default function OpeningsPanel() {
