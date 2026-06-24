@@ -146,6 +146,7 @@ function exportCSV(rows: FabricRow[]) {
 export default function TakeoffPanel() {
   const { stories, roofConfig } = useModelerStore()
   const [tab, setTab] = useState<'summary' | 'schedule'>('summary')
+  const [yFactor, setYFactor] = useState(0.05)  // SAP default Appendix K y-factor
 
   const storyTakeoffs = useMemo(() => stories.map(calcStoryTakeoff), [stories])
   const roofTakeoff = useMemo(() => {
@@ -161,6 +162,8 @@ export default function TakeoffPanel() {
   const totalWindowArea = stories.flatMap(s => s.openings.filter(o => o.type === 'window')).reduce((s, o) => s + o.width * o.height, 0)
   const totalDoorArea = stories.flatMap(s => s.openings.filter(o => o.type === 'door')).reduce((s, o) => s + o.width * o.height, 0)
   const totalHeatLoss = fabricRows.reduce((s, r) => s + r.heatLossArea * r.uValue, 0)
+  const totalExternalArea = fabricRows.reduce((s, r) => s + r.heatLossArea, 0)
+  const thermalBridgingHL = totalExternalArea * yFactor
 
   return (
     <div className="flex flex-col gap-3 p-3 bg-white border border-gray-200 rounded-xl text-sm h-full overflow-y-auto shadow-sm">
@@ -225,6 +228,28 @@ export default function TakeoffPanel() {
           </div>
 
           {/* Roof */}
+          {/* Heat loss summary */}
+          {totalHeatLoss > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-2">
+              <div className="text-xs text-amber-600 font-medium">Fabric Heat Loss (HT)</div>
+              <div className="text-lg font-bold text-amber-800">{fmt(totalHeatLoss, 1)} W/K</div>
+              <div className="flex items-center gap-2 mt-1.5 text-xs text-amber-700">
+                <label>y-factor</label>
+                <input
+                  type="number" step={0.01} min={0} max={0.3}
+                  value={yFactor}
+                  onChange={e => setYFactor(parseFloat(e.target.value) || 0.05)}
+                  className="w-14 bg-white border border-amber-200 rounded px-1.5 py-0.5 text-amber-800 focus:outline-none"
+                />
+                <span className="text-amber-500">W/m²K</span>
+                <span className="ml-auto">+{fmt(thermalBridgingHL, 1)} W/K</span>
+              </div>
+              <div className="text-xs text-amber-600 font-semibold mt-1 text-right">
+                Total: {fmt(totalHeatLoss + thermalBridgingHL, 1)} W/K
+              </div>
+            </div>
+          )}
+
           {roofTakeoff && (
             <div>
               <div className="flex items-center gap-1.5 text-xs font-medium text-gray-500 mb-2">
@@ -295,9 +320,18 @@ export default function TakeoffPanel() {
                     ))}
                   </tbody>
                   <tfoot>
+                    <tr className="border-t border-gray-200">
+                      <td colSpan={6} className="pt-1.5 pl-1 text-xs text-gray-500">Fabric (HTF)</td>
+                      <td className="pt-1.5 pr-1 text-right text-amber-600 text-xs">{fmt(totalHeatLoss, 1)} W/K</td>
+                    </tr>
+                    <tr>
+                      <td colSpan={5} className="pt-0.5 pl-1 text-xs text-gray-500">Thermal bridging (Σy·A)</td>
+                      <td className="pt-0.5 text-right text-xs text-gray-400">{yFactor}</td>
+                      <td className="pt-0.5 pr-1 text-right text-xs text-gray-500">+{fmt(thermalBridgingHL, 1)} W/K</td>
+                    </tr>
                     <tr className="border-t-2 border-gray-300">
-                      <td colSpan={6} className="pt-1.5 pl-1 text-xs text-gray-500 font-medium">Total fabric heat loss</td>
-                      <td className="pt-1.5 pr-1 text-right font-bold text-amber-600">{fmt(totalHeatLoss, 1)} W/K</td>
+                      <td colSpan={6} className="pt-1.5 pl-1 text-xs text-gray-600 font-semibold">Total HT</td>
+                      <td className="pt-1.5 pr-1 text-right font-bold text-amber-600">{fmt(totalHeatLoss + thermalBridgingHL, 1)} W/K</td>
                     </tr>
                   </tfoot>
                 </table>
