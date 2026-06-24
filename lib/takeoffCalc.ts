@@ -63,12 +63,16 @@ export function calcRoofTakeoff(topStory: Story, roof: RoofConfig): RoofTakeoff 
   const slopeFactor = 1 / Math.cos(pitchRad) // horizontal → sloped length multiplier
 
   switch (roof.type) {
-    case 'flat':
+    case 'flat': {
+      const area = topStory.footprintPolygon.length >= 3
+        ? polygonArea(topStory.footprintPolygon)
+        : w * d
       return {
         type: 'flat',
-        planes: [{ label: 'Flat Roof', area: w * d }],
-        totalArea: w * d,
+        planes: [{ label: 'Flat Roof', area }],
+        totalArea: area,
       }
+    }
     case 'shed': {
       const area = w * d * slopeFactor
       return {
@@ -92,21 +96,25 @@ export function calcRoofTakeoff(topStory: Story, roof: RoofConfig): RoofTakeoff 
       }
     }
     case 'hip': {
-      // Approximate: two trapezoidal sides + two triangular ends
+      // Two trapezoidal N-S slopes + two triangular E-W ends
+      // rise is based on half the shorter span
       const rise = (d / 2) * Math.tan(pitchRad)
+      // slant height perpendicular to the ridge (same for sides and ends on a symmetric hip)
       const sideSlant = Math.sqrt((d / 2) ** 2 + rise ** 2)
-      const endSlant = Math.sqrt((w / 2) ** 2 + rise ** 2)
-      const sideArea = ((w + (w - d)) / 2) * sideSlant  // trapezoid
-      const endArea = ((d / 2) * endSlant) / 2 * 2 // two triangles
+      // Each trapezoidal side: bases are w (eave) and max(0, w-d) (ridge); height is sideSlant
+      const ridgeLen = Math.max(0, w - d)
+      const sideArea = ((w + ridgeLen) / 2) * sideSlant
+      // Each triangular end: base = d, perpendicular slant height = sideSlant
+      const endArea = (d / 2) * sideSlant  // one triangle = 0.5 * d * sideSlant
       return {
         type: 'hip',
         planes: [
           { label: 'Hip Side A', area: sideArea },
           { label: 'Hip Side B', area: sideArea },
-          { label: 'Hip End A', area: endArea / 2 },
-          { label: 'Hip End B', area: endArea / 2 },
+          { label: 'Hip End A', area: endArea },
+          { label: 'Hip End B', area: endArea },
         ],
-        totalArea: sideArea * 2 + endArea,
+        totalArea: sideArea * 2 + endArea * 2,
       }
     }
   }
