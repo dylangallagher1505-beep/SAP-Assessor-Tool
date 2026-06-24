@@ -7,23 +7,21 @@ import { useModelerStore, Story, Wall, Point2D, RoofConfig, Opening, SelectedFac
 
 // ─── Extruded Room ────────────────────────────────────────────────────────────
 
-function ExtrudedRoom({ polygon, storyHeight, startHeight, isActive }: {
-  polygon: Point2D[]; storyHeight: number; startHeight: number; isActive: boolean
-}) {
+function ExtrudedRoom({ story, isActive }: { story: Story; isActive: boolean }) {
   const geom = useMemo(() => {
-    const pts = polygon
+    const pts = story.footprintPolygon
     if (pts.length < 3) return null
     const shape = new THREE.Shape()
     shape.moveTo(pts[0].x, pts[0].y)
     for (let i = 1; i < pts.length; i++) shape.lineTo(pts[i].x, pts[i].y)
     shape.closePath()
-    return new THREE.ExtrudeGeometry(shape, { depth: storyHeight, bevelEnabled: false })
-  }, [polygon, storyHeight])
+    return new THREE.ExtrudeGeometry(shape, { depth: story.storyHeight, bevelEnabled: false })
+  }, [story.footprintPolygon, story.storyHeight])
 
   if (!geom) return null
 
   return (
-    <mesh geometry={geom} rotation={[-Math.PI / 2, 0, 0]} position={[0, startHeight, 0]}>
+    <mesh geometry={geom} rotation={[-Math.PI / 2, 0, 0]} position={[0, story.startHeight, 0]}>
       <meshStandardMaterial
         color={isActive ? '#2563eb' : '#64748b'}
         opacity={isActive ? 0.3 : 0.15}
@@ -35,37 +33,53 @@ function ExtrudedRoom({ polygon, storyHeight, startHeight, isActive }: {
   )
 }
 
-// ─── Clickable wall face quad (used for both open and closed rooms) ──────────
+// ─── Tapered wall quad geometry ───────────────────────────────────────────────
+
+function taperedWallGeometry(
+  startX: number, startZ: number,
+  endX: number, endZ: number,
+  baseY: number, hleft: number, hright: number
+): THREE.BufferGeometry {
+  // Four corners: bl, br, tr, tl (world XYZ)
+  const bl: [number, number, number] = [startX, baseY, startZ]
+  const br: [number, number, number] = [endX, baseY, endZ]
+  const tr: [number, number, number] = [endX, baseY + hright, endZ]
+  const tl: [number, number, number] = [startX, baseY + hleft, startZ]
+  // Two triangles: bl-br-tr, bl-tr-tl
+  const pos = new Float32Array([
+    ...bl, ...br, ...tr,
+    ...bl, ...tr, ...tl,
+  ])
+  const geom = new THREE.BufferGeometry()
+  geom.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+  geom.computeVertexNormals()
+  return geom
+}
+
+// ─── Clickable wall face quad (tapered) ──────────────────────────────────────
 
 function WallFaceQuad({ wall, storyId, storyHeight, startHeight, selectedFace, onSelect }: {
   wall: Wall; storyId: string; storyHeight: number; startHeight: number
   selectedFace: SelectedFace; onSelect: (f: SelectedFace) => void
 }) {
-  const { position, rotation, length } = useMemo(() => {
-    const dx = wall.end.x - wall.start.x
-    const dy = wall.end.y - wall.start.y
-    const length = Math.sqrt(dx * dx + dy * dy)
-    const angle = Math.atan2(dy, dx)
-    return {
-      length,
-      rotation: angle,
-      position: [(wall.start.x + wall.end.x) / 2, startHeight + storyHeight / 2, (wall.start.y + wall.end.y) / 2] as [number, number, number],
-    }
-  }, [wall, startHeight, storyHeight])
+  const geom = useMemo(() => {
+    const dx = wall.end.x - wall.start.x, dy = wall.end.y - wall.start.y
+    if (Math.sqrt(dx * dx + dy * dy) < 0.01) return null
+    const hl = wall.heightLeft ?? storyHeight
+    const hr = wall.heightRight ?? storyHeight
+    return taperedWallGeometry(wall.start.x, wall.start.y, wall.end.x, wall.end.y, startHeight, hl, hr)
+  }, [wall, storyHeight, startHeight])
 
-  if (length < 0.01) return null
+  if (!geom) return null
   const isSelected = selectedFace?.type === 'wall' && selectedFace.wallId === wall.id && selectedFace.storyId === storyId
-  const hoverColor = wall.wallType === 'party' ? '#fb923c' : wall.wallType === 'internal' ? '#94a3b8' : '#3b82f6'
 
   return (
     <mesh
-      position={position}
-      rotation={[0, -rotation, 0]}
+      geometry={geom}
       onClick={(e) => { e.stopPropagation(); onSelect(isSelected ? null : { type: 'wall', storyId, wallId: wall.id }) }}
     >
-      <planeGeometry args={[length, storyHeight]} />
       <meshStandardMaterial
-        color={isSelected ? '#f59e0b' : hoverColor}
+        color={isSelected ? '#f59e0b' : '#3b82f6'}
         opacity={isSelected ? 0.35 : 0.0}
         transparent
         side={THREE.DoubleSide}
@@ -75,31 +89,29 @@ function WallFaceQuad({ wall, storyId, storyHeight, startHeight, selectedFace, o
   )
 }
 
-// ─── In-progress wall sticks ──────────────────────────────────────────────────
+// ─── Wall solid mesh (tapered) ────────────────────────────────────────────────
 
 function WallMesh({ wall, storyHeight, startHeight, isActive }: {
   wall: Wall; storyHeight: number; startHeight: number; isActive: boolean
 }) {
-  const { position, rotation, length } = useMemo(() => {
-    const dx = wall.end.x - wall.start.x
-    const dy = wall.end.y - wall.start.y
-    const length = Math.sqrt(dx * dx + dy * dy)
-    const angle = Math.atan2(dy, dx)
-    return {
-      length,
-      rotation: angle,
-      position: [(wall.start.x + wall.end.x) / 2, startHeight + storyHeight / 2, (wall.start.y + wall.end.y) / 2] as [number, number, number],
-    }
-  }, [wall, startHeight, storyHeight])
+  const geom = useMemo(() => {
+    const dx = wall.end.x - wall.start.x, dy = wall.end.y - wall.start.y
+    if (Math.sqrt(dx * dx + dy * dy) < 0.01) return null
+    const hl = wall.heightLeft ?? storyHeight
+    const hr = wall.heightRight ?? storyHeight
+    return taperedWallGeometry(wall.start.x, wall.start.y, wall.end.x, wall.end.y, startHeight, hl, hr)
+  }, [wall, storyHeight, startHeight])
 
-  if (length < 0.01) return null
-
-  const wallColor = wall.wallType === 'party' ? '#f97316' : wall.wallType === 'internal' ? '#94a3b8' : (isActive ? '#3b82f6' : '#94a3b8')
+  if (!geom) return null
 
   return (
-    <mesh position={position} rotation={[0, -rotation, 0]}>
-      <boxGeometry args={[length, storyHeight, 0.15]} />
-      <meshStandardMaterial color={wallColor} opacity={isActive ? 0.8 : 0.4} transparent={!isActive} />
+    <mesh geometry={geom}>
+      <meshStandardMaterial
+        color={isActive ? '#3b82f6' : '#94a3b8'}
+        opacity={isActive ? 0.8 : 0.4}
+        transparent={!isActive}
+        side={THREE.DoubleSide}
+      />
     </mesh>
   )
 }
@@ -107,34 +119,23 @@ function WallMesh({ wall, storyHeight, startHeight, isActive }: {
 // ─── Floor slab ───────────────────────────────────────────────────────────────
 
 function FloorSlab({ story }: { story: Story }) {
-  const polygons: Point2D[][] = story.rooms.length > 0
-    ? story.rooms.map(r => r.polygon)
-    : story.footprintPolygon.length >= 3
-      ? [story.footprintPolygon]
-      : wallsToConvexHull(story.walls).length >= 3
-        ? [wallsToConvexHull(story.walls)]
-        : []
-
-  const shapes = useMemo(() => polygons.map(pts => {
+  const pts = story.footprintPolygon.length >= 3 ? story.footprintPolygon : wallsToConvexHull(story.walls)
+  const shape = useMemo(() => {
     if (pts.length < 3) return null
     const s = new THREE.Shape()
     s.moveTo(pts[0].x, pts[0].y)
     for (let i = 1; i < pts.length; i++) s.lineTo(pts[i].x, pts[i].y)
     s.closePath()
     return s
-  }).filter(Boolean) as THREE.Shape[], [story])
+  }, [pts])
 
-  if (shapes.length === 0) return null
+  if (!shape) return null
 
   return (
-    <>
-      {shapes.map((shape, i) => (
-        <mesh key={i} rotation={[-Math.PI / 2, 0, 0]} position={[0, story.startHeight + 0.01, 0]}>
-          <shapeGeometry args={[shape]} />
-          <meshStandardMaterial color="#e2e8f0" opacity={0.9} transparent side={THREE.DoubleSide} />
-        </mesh>
-      ))}
-    </>
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, story.startHeight + 0.01, 0]}>
+      <shapeGeometry args={[shape]} />
+      <meshStandardMaterial color="#e2e8f0" opacity={0.9} transparent side={THREE.DoubleSide} />
+    </mesh>
   )
 }
 
@@ -388,27 +389,13 @@ function Scene() {
 
       {stories.map((story) => {
         const isActive = story.id === activeStoryId
-        // Support both legacy footprintPolygon and new multi-room rooms[]
-        const polygons: Point2D[][] = story.rooms.length > 0
-          ? story.rooms.map(r => r.polygon)
-          : story.footprintPolygon.length >= 3
-            ? [story.footprintPolygon]
-            : []
-        const hasRooms = polygons.length > 0
+        const hasClosedRoom = story.footprintPolygon.length >= 3
 
         return (
           <group key={story.id}>
-            {hasRooms ? (
+            {hasClosedRoom ? (
               <>
-                {polygons.map((poly, pi) => (
-                  <ExtrudedRoom
-                    key={pi}
-                    polygon={poly}
-                    storyHeight={story.storyHeight}
-                    startHeight={story.startHeight}
-                    isActive={isActive}
-                  />
-                ))}
+                <ExtrudedRoom story={story} isActive={isActive} />
                 <FloorSlab story={story} />
                 {story.openings.length > 0 && <OpeningMeshes story={story} />}
               </>
@@ -426,7 +413,7 @@ function Scene() {
                 ))}
               </>
             )}
-            {/* Clickable face quads overlaid on every wall */}
+            {/* Clickable face quads overlaid on every wall (closed or open) */}
             {story.walls.map((wall) => (
               <WallFaceQuad
                 key={`fq-${wall.id}`}

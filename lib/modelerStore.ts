@@ -17,6 +17,8 @@ export interface Wall {
   end: Point2D
   wallType: WallType  // SAP: only external walls count toward heat loss
   uValue: number      // W/m²K — defaults vary by wall type
+  heightLeft?: number  // top-left corner height in metres (defaults to storyHeight)
+  heightRight?: number // top-right corner height in metres (defaults to storyHeight)
 }
 
 // ─── Openings ────────────────────────────────────────────────────────────────
@@ -111,7 +113,7 @@ interface ModelerState {
   setActiveStory: (id: string) => void
 
   addWall: (storyId: string, wall: Pick<Wall, 'start' | 'end'> & Partial<Pick<Wall, 'wallType' | 'uValue'>>, name?: string) => void
-  updateWall: (storyId: string, wallId: string, patch: Partial<Pick<Wall, 'name' | 'wallType' | 'uValue'>>) => void
+  updateWall: (storyId: string, wallId: string, patch: Partial<Pick<Wall, 'name' | 'wallType' | 'uValue' | 'heightLeft' | 'heightRight'>>) => void
   removeWall: (storyId: string, wallId: string) => void
   undoWall: (storyId: string) => void
   clearWalls: (storyId: string) => void
@@ -120,6 +122,7 @@ interface ModelerState {
   closePolygon: (storyId: string, polygon: Point2D[], roomName?: string) => void
   copyFootprintTo: (fromStoryId: string, toStoryId: string) => void
   updateRoom: (storyId: string, roomId: string, patch: Partial<Pick<Room, 'name'>>) => void
+  moveVertex: (storyId: string, roomId: string, vertIdx: number, newPos: Point2D) => void
   removeRoom: (storyId: string, roomId: string) => void
 
   setSelectedWallId: (id: string | null) => void
@@ -334,6 +337,37 @@ export const useModelerStore = create<ModelerState>()(
           ? { ...st, rooms: st.rooms.map(r => r.id === roomId ? { ...r, ...patch } : r) }
           : st
       ),
+    })),
+
+  moveVertex: (storyId, roomId, vertIdx, newPos) =>
+    set((s) => ({
+      stories: s.stories.map((st) => {
+        if (st.id !== storyId) return st
+        const rooms = st.rooms.map((r) => {
+          if (r.id !== roomId) return r
+          const polygon = r.polygon.map((p, i) => i === vertIdx ? newPos : p)
+          return { ...r, polygon }
+        })
+        // Also update walls that share this vertex
+        const room = st.rooms.find(r => r.id === roomId)
+        if (!room) return { ...st, rooms }
+        const oldPos = room.polygon[vertIdx]
+        const eq = (a: Point2D, b: Point2D) => Math.abs(a.x - b.x) < 0.001 && Math.abs(a.y - b.y) < 0.001
+        const walls = st.walls.map((w) => ({
+          ...w,
+          start: eq(w.start, oldPos) ? newPos : w.start,
+          end: eq(w.end, oldPos) ? newPos : w.end,
+        }))
+        // Update footprintPolygon if first room
+        const isFirst = st.rooms[0]?.id === roomId
+        const updatedRoom = rooms.find(r => r.id === roomId)!
+        return {
+          ...st,
+          rooms,
+          walls,
+          footprintPolygon: isFirst ? updatedRoom.polygon : st.footprintPolygon,
+        }
+      }),
     })),
 
   removeRoom: (storyId, roomId) =>

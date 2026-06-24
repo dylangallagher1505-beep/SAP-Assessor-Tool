@@ -2,6 +2,7 @@
 import { useRef, useEffect, useCallback, useState } from 'react'
 import { useModelerStore, Point2D, Wall } from '@/lib/modelerStore'
 import { ZoomIn, ZoomOut, Maximize2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Trash2 } from 'lucide-react'
+import WallFaceEditor from './WallFaceEditor'
 
 const CANVAS_PX = 800
 
@@ -67,7 +68,7 @@ export default function DrawingCanvas({ className }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const lengthInputRef = useRef<HTMLInputElement>(null)
 
-  const { stories, activeStoryId, drawingTool, gridSizeM, addWall, clearWalls, setFootprint, closePolygon, registerRoom, selectedWallId, setSelectedWallId, removeWall, undoWall, wallHistory } =
+  const { stories, activeStoryId, drawingTool, gridSizeM, addWall, clearWalls, setFootprint, closePolygon, registerRoom, selectedWallId, setSelectedWallId, removeWall, undoWall, wallHistory, moveVertex } =
     useModelerStore()
   const activeStory = stories.find((s) => s.id === activeStoryId)
 
@@ -99,6 +100,13 @@ export default function DrawingCanvas({ className }: Props) {
 
   // Hovered wall (local only — no need for store)
   const [hoveredWallId, setHoveredWallId] = useState<string | null>(null)
+
+  // Ortho lock (Shift key)
+  const [shiftDown, setShiftDown] = useState(false)
+
+  // Vertex drag state (select tool)
+  const [dragVertex, setDragVertex] = useState<{ roomIdx: number; vertIdx: number } | null>(null)
+  const isDraggingVertex = useRef(false)
 
   // Clear selection on storey switch
   useEffect(() => {
@@ -163,8 +171,16 @@ export default function DrawingCanvas({ className }: Props) {
       const projLen = Math.max(0, proj)
       return { x: start.x + kbDir.x * projLen, y: start.y + kbDir.y * projLen }
     }
+    if (shiftDown) {
+      // Ortho lock: constrain to nearest 90° axis
+      const dx = mouseWorld.x - start.x
+      const dy = mouseWorld.y - start.y
+      return Math.abs(dx) >= Math.abs(dy)
+        ? { x: mouseWorld.x, y: start.y }
+        : { x: start.x, y: mouseWorld.y }
+    }
     return snapToAngle(start, mouseWorld)
-  }, [kbLength, kbDir, mouseWorld])
+  }, [kbLength, kbDir, mouseWorld, shiftDown])
 
   function nextWallName(): string {
     const count = (activeStory?.walls.length ?? 0) + 1
@@ -216,6 +232,14 @@ export default function DrawingCanvas({ className }: Props) {
   }
 
   // ── Keyboard shortcuts (Ctrl+Z undo, Delete key) ─────────────────────────
+
+  useEffect(() => {
+    const onShiftDown = (e: KeyboardEvent) => { if (e.key === 'Shift') setShiftDown(true) }
+    const onShiftUp = (e: KeyboardEvent) => { if (e.key === 'Shift') setShiftDown(false) }
+    window.addEventListener('keydown', onShiftDown)
+    window.addEventListener('keyup', onShiftUp)
+    return () => { window.removeEventListener('keydown', onShiftDown); window.removeEventListener('keyup', onShiftUp) }
+  }, [])
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -309,6 +333,23 @@ export default function DrawingCanvas({ className }: Props) {
       isPanning.current = true
       setCursorPanning(true)
       panStart.current = { mx: e.clientX, my: e.clientY, pan: { ...pan } }
+      return
+    }
+    // Vertex drag — select tool, left button
+    if (e.button === 0 && drawingTool === 'select' && activeStory) {
+      const pt = getWorldPos(e)
+      const snapR = gridSizeM * 0.8
+      for (let ri = 0; ri < activeStory.rooms.length; ri++) {
+        const room = activeStory.rooms[ri]
+        for (let vi = 0; vi < room.polygon.length; vi++) {
+          const v = room.polygon[vi]
+          if (Math.sqrt((v.x - pt.x) ** 2 + (v.y - pt.y) ** 2) < snapR) {
+            setDragVertex({ roomIdx: ri, vertIdx: vi })
+            isDraggingVertex.current = true
+            return
+          }
+        }
+      }
     }
   }
 
@@ -322,7 +363,16 @@ export default function DrawingCanvas({ className }: Props) {
       })
       return
     }
-    setMouseWorld(getWorldPos(e))
+    const pt = getWorldPos(e)
+    setMouseWorld(pt)
+
+    // Vertex drag
+    if (isDraggingVertex.current && dragVertex && activeStory && activeStoryId) {
+      const room = activeStory.rooms[dragVertex.roomIdx]
+      if (room) moveVertex(activeStoryId, room.id, dragVertex.vertIdx, pt)
+      return
+    }
+
     // Hover detection — only when not actively drawing
     if (!pendingStart && polyPoints.length === 0) {
       const { cx, cy } = getCanvasPos(e)
@@ -332,6 +382,10 @@ export default function DrawingCanvas({ className }: Props) {
 
   function handleMouseUp(e: React.MouseEvent<HTMLCanvasElement>) {
     if (isPanning.current) { isPanning.current = false; setCursorPanning(false); return }
+    if (isDraggingVertex.current) {
+      isDraggingVertex.current = false
+      setDragVertex(null)
+    }
   }
 
   // ── Canvas drawing ─────────────────────────────────────────────────────────
@@ -466,6 +520,18 @@ export default function DrawingCanvas({ className }: Props) {
           ctx.fillStyle = isActive ? '#1d4ed8' : '#93c5fd'
           ctx.fillText(label, cc.x, cc.y)
           ctx.textAlign = 'left'
+
+          // Vertex handles in select mode
+          if (drawingTool === 'select' && isActive) {
+            for (const v of polygon) {
+              const vp = worldToCanvas(v, pan, zoom)
+              ctx.fillStyle = '#2563eb'
+              ctx.strokeStyle = '#fff'
+              ctx.lineWidth = 1.5
+              ctx.beginPath(); ctx.arc(vp.x, vp.y, 5, 0, Math.PI * 2)
+              ctx.fill(); ctx.stroke()
+            }
+          }
         }
       } else if (isActive && story.footprintPolygon.length >= 2) {
         ctx.strokeStyle = '#3b82f6'
@@ -495,6 +561,35 @@ export default function DrawingCanvas({ className }: Props) {
       }
       const mp = worldToCanvas(mouseWorld, pan, zoom)
       ctx.lineTo(mp.x, mp.y); ctx.stroke()
+
+      // Filled preview with live area
+      if (polyPoints.length >= 2) {
+        const previewPoly = [...polyPoints, mouseWorld]
+        ctx.fillStyle = 'rgba(245,158,11,0.08)'
+        ctx.beginPath()
+        const fp2 = worldToCanvas(previewPoly[0], pan, zoom)
+        ctx.moveTo(fp2.x, fp2.y)
+        for (let i = 1; i < previewPoly.length; i++) {
+          const pp = worldToCanvas(previewPoly[i], pan, zoom)
+          ctx.lineTo(pp.x, pp.y)
+        }
+        ctx.closePath(); ctx.fill()
+
+        // Live area at centroid
+        const area = Math.abs(previewPoly.reduce((s, p, i) => {
+          const j = (i + 1) % previewPoly.length
+          return s + p.x * previewPoly[j].y - previewPoly[j].x * p.y
+        }, 0) / 2)
+        const cxW = previewPoly.reduce((s, p) => s + p.x, 0) / previewPoly.length
+        const cyW = previewPoly.reduce((s, p) => s + p.y, 0) / previewPoly.length
+        const cc = worldToCanvas({ x: cxW, y: cyW }, pan, zoom)
+        ctx.font = 'bold 12px monospace'
+        ctx.textAlign = 'center'
+        ctx.fillStyle = '#92400e'
+        ctx.fillText(`${area.toFixed(1)} m²`, cc.x, cc.y)
+        ctx.textAlign = 'left'
+      }
+
       for (const pt of polyPoints) {
         const pp = worldToCanvas(pt, pan, zoom)
         ctx.fillStyle = '#f59e0b'
@@ -770,6 +865,18 @@ export default function DrawingCanvas({ className }: Props) {
             <Trash2 size={11} /> Delete
           </button>
           <button onClick={() => setSelectedWallId(null)} className="text-amber-400 hover:text-amber-700">✕</button>
+        </div>
+      )}
+
+      {/* 2D wall face editor — shown when a wall is selected */}
+      {selectedWall && activeStory && activeStoryId && (
+        <div className="px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl shadow-sm">
+          <div className="text-xs font-semibold text-blue-700 mb-2">Wall Face — {selectedWall.name}</div>
+          <WallFaceEditor
+            wall={selectedWall}
+            storyId={activeStoryId}
+            storyHeight={activeStory.storyHeight}
+          />
         </div>
       )}
 

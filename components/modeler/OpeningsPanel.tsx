@@ -8,8 +8,7 @@ function wallLength(start: { x: number; y: number }, end: { x: number; y: number
   return Math.sqrt(dx * dx + dy * dy)
 }
 
-function wallLabel(wall: { name?: string; start: { x: number; y: number }; end: { x: number; y: number } }, i: number, len: number) {
-  if (wall.name) return `${wall.name} — ${len.toFixed(2)}m`
+function wallLabel(i: number, len: number) {
   const dirs = ['N', 'E', 'S', 'W']
   return `Wall ${i + 1} (${dirs[i % 4]}) — ${len.toFixed(2)}m`
 }
@@ -21,7 +20,7 @@ const DEFAULT_OPENING: Omit<Opening, 'id' | 'wallId'> = {
   height: 1.0,
   sillHeight: 0.9,
   uValue: 1.4,
-  gValue: 0.63,  // SAP default for standard double glazing
+  gValue: 0.63,
 }
 
 export default function OpeningsPanel() {
@@ -53,7 +52,7 @@ export default function OpeningsPanel() {
               onClick={() => setExpandedWall(isOpen ? null : wall.id)}
             >
               {isOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-              <span className="text-gray-700 flex-1">{wallLabel(wall, i, len)}</span>
+              <span className="text-gray-700 flex-1">{wallLabel(i, len)}</span>
               <span className="text-gray-400">{wallOpenings.length > 0 ? `${wallOpenings.length} opening${wallOpenings.length > 1 ? 's' : ''}` : ''}</span>
             </button>
 
@@ -166,7 +165,7 @@ function OpeningEditor({
         </div>
       )}
 
-      {/* U-value + g-value */}
+      {/* U-value */}
       <div className="flex items-center gap-2">
         <label className="text-gray-500 w-14 shrink-0">U-value</label>
         <input
@@ -177,18 +176,6 @@ function OpeningEditor({
         />
         <span className="text-gray-400">W/m²K</span>
       </div>
-      {opening.type === 'window' && (
-        <div className="flex items-center gap-2">
-          <label className="text-gray-500 w-14 shrink-0">g-value</label>
-          <input
-            type="number" step={0.01} min={0} max={1}
-            value={opening.gValue ?? 0.63}
-            onChange={(e) => onUpdate({ gValue: parseFloat(e.target.value) || 0.63 })}
-            className="w-16 bg-white border border-gray-200 rounded px-1.5 py-0.5 text-gray-700 focus:outline-none focus:border-blue-400"
-          />
-          <span className="text-gray-400 text-[10px]">solar gain factor</span>
-        </div>
-      )}
 
       <div className="text-gray-400 text-right">
         Area: {(opening.width * opening.height).toFixed(2)} m²
