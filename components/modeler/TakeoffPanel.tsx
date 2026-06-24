@@ -21,7 +21,7 @@ interface FabricRow {
   openingArea: number
   netArea: number
   uValue: number
-  heatLossArea: number  // = netArea for external, 0 for internal
+  heatLossArea: number
 }
 
 function buildFabricSchedule(stories: ReturnType<typeof useModelerStore.getState>['stories'], roofConfig: ReturnType<typeof useModelerStore.getState>['roofConfig']): FabricRow[] {
@@ -32,7 +32,6 @@ function buildFabricSchedule(stories: ReturnType<typeof useModelerStore.getState
     const story = stories[si]
     if (story.walls.length === 0) continue
 
-    // Floor (ground floor only for first storey, otherwise internal)
     const floorPolygons = story.rooms.length > 0
       ? story.rooms.map(r => r.polygon)
       : story.footprintPolygon.length >= 3 ? [story.footprintPolygon] : []
@@ -49,7 +48,6 @@ function buildFabricSchedule(stories: ReturnType<typeof useModelerStore.getState
       })
     }
 
-    // Walls
     for (const wall of story.walls) {
       const len = wallLength(wall.start, wall.end)
       if (len < 0.05) continue
@@ -71,7 +69,6 @@ function buildFabricSchedule(stories: ReturnType<typeof useModelerStore.getState
         heatLossArea: isHeatLoss ? netArea : 0,
       })
 
-      // Window rows
       for (const op of wallOpenings.filter(o => o.type === 'window')) {
         rows.push({
           ref: `Gw${wallRef}`,
@@ -83,7 +80,6 @@ function buildFabricSchedule(stories: ReturnType<typeof useModelerStore.getState
         })
       }
 
-      // Door rows
       for (const op of wallOpenings.filter(o => o.type === 'door')) {
         rows.push({
           ref: `Gd${wallRef}`,
@@ -98,7 +94,6 @@ function buildFabricSchedule(stories: ReturnType<typeof useModelerStore.getState
       wallRef++
     }
 
-    // Ceiling (only if not top storey, else roof handles it)
     const isTop = si === stories.length - 1
     const ceilArea = floorPolygons.reduce((s, p) => s + polygonArea(p), 0)
     if (!isTop && ceilArea > 0) {
@@ -112,7 +107,6 @@ function buildFabricSchedule(stories: ReturnType<typeof useModelerStore.getState
     }
   }
 
-  // Roof
   const top = stories[stories.length - 1]
   if (top && top.footprintPolygon.length >= 3) {
     const rt = calcRoofTakeoff(top, roofConfig)
@@ -129,18 +123,12 @@ function buildFabricSchedule(stories: ReturnType<typeof useModelerStore.getState
   return rows
 }
 
-function exportCSV(rows: FabricRow[], yFactor: number, ventHL: number) {
+function exportCSV(rows: FabricRow[]) {
   const header = 'Ref,Element,Type,Gross Area (m²),Opening Area (m²),Net Area (m²),U-value (W/m²K),Heat Loss Area (m²),Heat Loss (W/K)\n'
   const body = rows.map(r =>
     `${r.ref},"${r.element}",${r.type},${fmt(r.grossArea)},${fmt(r.openingArea)},${fmt(r.netArea)},${fmt(r.uValue)},${fmt(r.heatLossArea)},${fmt(r.heatLossArea * r.uValue)}`
   ).join('\n')
-  const totalFabric = rows.reduce((s, r) => s + r.heatLossArea * r.uValue, 0)
-  const totalExtArea = rows.reduce((s, r) => s + r.heatLossArea, 0)
-  const bridgingHL = totalExtArea * yFactor
-  const footer = `\nTB,Thermal Bridging (y·ΣA),Thermal Bridging,${fmt(totalExtArea)},,,${fmt(yFactor)},${fmt(totalExtArea)},${fmt(bridgingHL)}`
-    + `\nHV,Ventilation Heat Loss,Ventilation,,,,,,${fmt(ventHL)}`
-    + `\n,,Total HT+HV,,,,,, ${fmt(totalFabric + bridgingHL + ventHL)}`
-  const blob = new Blob([header + body + footer], { type: 'text/csv' })
+  const blob = new Blob([header + body], { type: 'text/csv' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url; a.download = 'sap-fabric-schedule.csv'; a.click()
@@ -152,9 +140,6 @@ function exportCSV(rows: FabricRow[], yFactor: number, ventHL: number) {
 export default function TakeoffPanel() {
   const { stories, roofConfig } = useModelerStore()
   const [tab, setTab] = useState<'summary' | 'schedule'>('summary')
-  const [yFactor, setYFactor] = useState(0.05)   // SAP default Appendix K y-factor
-  const [achN50, setAchN50] = useState(10)        // air changes/hr at 50 Pa (test pressure)
-  const [ventType, setVentType] = useState<'natural' | 'mev' | 'mvhr'>('natural')
 
   const storyTakeoffs = useMemo(() => stories.map(calcStoryTakeoff), [stories])
   const roofTakeoff = useMemo(() => {
@@ -171,20 +156,6 @@ export default function TakeoffPanel() {
   const totalWindowArea = allWindows.reduce((s, o) => s + o.width * o.height, 0)
   const totalDoorArea = stories.flatMap(s => s.openings.filter(o => o.type === 'door')).reduce((s, o) => s + o.width * o.height, 0)
   const effectiveSolarArea = allWindows.reduce((s, o) => s + o.width * o.height * (o.gValue ?? 0.63) * 0.9, 0)
-  const totalHeatLoss = fabricRows.reduce((s, r) => s + r.heatLossArea * r.uValue, 0)
-  const totalExternalArea = fabricRows.reduce((s, r) => s + r.heatLossArea, 0)
-  const thermalBridgingHL = totalExternalArea * yFactor
-
-  // Ventilation heat loss (SAP simplified)
-  const totalVolume = storyTakeoffs.reduce((s, t, i) => s + t.floorArea * (stories[i]?.storyHeight ?? 2.5), 0)
-  // effective ACH: n50 / 20 for natural, /20 with adjustment for MEV/MVHR
-  const mvhrEfficiency = 0.7  // typical MVHR efficiency
-  const effectiveACH = ventType === 'natural'
-    ? achN50 / 20
-    : ventType === 'mev'
-      ? achN50 / 20 * 0.9
-      : achN50 / 20 * (1 - mvhrEfficiency)
-  const ventHeatLoss = 0.33 * effectiveACH * totalVolume  // W/K
 
   return (
     <div className="flex flex-col gap-3 p-3 bg-white border border-gray-200 rounded-xl text-sm h-full overflow-y-auto shadow-sm">
@@ -255,66 +226,6 @@ export default function TakeoffPanel() {
           </div>
 
           {/* Roof */}
-          {/* Heat loss summary */}
-          {totalHeatLoss > 0 && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-2">
-              <div className="text-xs text-amber-600 font-medium">Fabric Heat Loss (HT)</div>
-              <div className="text-lg font-bold text-amber-800">{fmt(totalHeatLoss, 1)} W/K</div>
-              <div className="flex items-center gap-2 mt-1.5 text-xs text-amber-700">
-                <label>y-factor</label>
-                <input
-                  type="number" step={0.01} min={0} max={0.3}
-                  value={yFactor}
-                  onChange={e => setYFactor(parseFloat(e.target.value) || 0.05)}
-                  className="w-14 bg-white border border-amber-200 rounded px-1.5 py-0.5 text-amber-800 focus:outline-none"
-                />
-                <span className="text-amber-500">W/m²K</span>
-                <span className="ml-auto">+{fmt(thermalBridgingHL, 1)} W/K</span>
-              </div>
-              <div className="text-xs text-amber-600 font-semibold mt-1 text-right">
-                Total: {fmt(totalHeatLoss + thermalBridgingHL, 1)} W/K
-              </div>
-            </div>
-          )}
-
-          {/* Ventilation heat loss */}
-          {totalVolume > 0 && (
-            <div className="bg-teal-50 border border-teal-200 rounded-lg p-2 flex flex-col gap-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-teal-600 font-medium">Ventilation Heat Loss (HV)</span>
-                <span className="text-sm font-bold text-teal-800">{fmt(ventHeatLoss, 1)} W/K</span>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-teal-700">
-                <label>n50</label>
-                <input
-                  type="number" step={1} min={1} max={30}
-                  value={achN50}
-                  onChange={e => setAchN50(parseFloat(e.target.value) || 10)}
-                  className="w-12 bg-white border border-teal-200 rounded px-1.5 py-0.5 text-teal-800 focus:outline-none"
-                />
-                <span className="text-teal-500">ac/h</span>
-                <select
-                  value={ventType}
-                  onChange={e => setVentType(e.target.value as 'natural' | 'mev' | 'mvhr')}
-                  className="flex-1 bg-white border border-teal-200 rounded px-1 py-0.5 text-teal-700 focus:outline-none text-[10px]"
-                >
-                  <option value="natural">Natural</option>
-                  <option value="mev">MEV</option>
-                  <option value="mvhr">MVHR</option>
-                </select>
-              </div>
-              <div className="text-[10px] text-teal-500">Volume {fmt(totalVolume, 0)} m³ · eff ACH {effectiveACH.toFixed(2)}</div>
-            </div>
-          )}
-
-          {/* Combined HT + HV */}
-          {totalHeatLoss > 0 && totalVolume > 0 && (
-            <div className="bg-orange-50 border border-orange-200 rounded-lg p-2 flex items-center justify-between">
-              <span className="text-xs text-orange-600 font-medium">Total HL (HT + HV)</span>
-              <span className="text-base font-bold text-orange-800">{fmt(totalHeatLoss + thermalBridgingHL + ventHeatLoss, 1)} W/K</span>
-            </div>
-          )}
-
           {roofTakeoff && (
             <div>
               <div className="flex items-center gap-1.5 text-xs font-medium text-gray-500 mb-2">
@@ -341,13 +252,12 @@ export default function TakeoffPanel() {
 
       {tab === 'schedule' && (
         <>
-          {/* SAP fabric schedule */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5 text-xs font-medium text-gray-500">
               <Table size={12} /> SAP 10.2 Fabric Schedule
             </div>
             <button
-              onClick={() => exportCSV(fabricRows, yFactor, ventHeatLoss)}
+              onClick={() => exportCSV(fabricRows)}
               className="flex items-center gap-1 text-xs text-green-600 hover:text-green-700"
             >
               <Download size={11} /> CSV
@@ -385,18 +295,9 @@ export default function TakeoffPanel() {
                     ))}
                   </tbody>
                   <tfoot>
-                    <tr className="border-t border-gray-200">
-                      <td colSpan={6} className="pt-1.5 pl-1 text-xs text-gray-500">Fabric (HTF)</td>
-                      <td className="pt-1.5 pr-1 text-right text-amber-600 text-xs">{fmt(totalHeatLoss, 1)} W/K</td>
-                    </tr>
-                    <tr>
-                      <td colSpan={5} className="pt-0.5 pl-1 text-xs text-gray-500">Thermal bridging (Σy·A)</td>
-                      <td className="pt-0.5 text-right text-xs text-gray-400">{yFactor}</td>
-                      <td className="pt-0.5 pr-1 text-right text-xs text-gray-500">+{fmt(thermalBridgingHL, 1)} W/K</td>
-                    </tr>
                     <tr className="border-t-2 border-gray-300">
-                      <td colSpan={6} className="pt-1.5 pl-1 text-xs text-gray-600 font-semibold">Total HT</td>
-                      <td className="pt-1.5 pr-1 text-right font-bold text-amber-600">{fmt(totalHeatLoss + thermalBridgingHL, 1)} W/K</td>
+                      <td colSpan={6} className="pt-1.5 pl-1 text-xs text-gray-500 font-medium">Total fabric heat loss</td>
+                      <td className="pt-1.5 pr-1 text-right font-bold text-amber-600">{fmt(fabricRows.reduce((s, r) => s + r.heatLossArea * r.uValue, 0), 1)} W/K</td>
                     </tr>
                   </tfoot>
                 </table>
