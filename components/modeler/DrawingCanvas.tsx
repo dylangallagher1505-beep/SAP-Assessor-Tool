@@ -698,15 +698,15 @@ export default function DrawingCanvas({ className }: Props) {
       {/* Status bar */}
       <div className="flex items-center gap-2 text-xs text-gray-500">
         <span>Active: <span className="text-blue-600 font-medium">{activeStory?.name ?? '—'}</span></span>
-        {activeStory && activeStory.footprintPolygon.length >= 3 && !pendingStart && (
+        {activeStory && (activeStory.rooms.length > 0 || activeStory.footprintPolygon.length >= 3) && !pendingStart && (
           <button
             onClick={() => { if (activeStoryId) clearWalls(activeStoryId) }}
             className="px-2 py-0.5 rounded bg-white hover:bg-red-50 text-gray-500 hover:text-red-600 border border-gray-200 text-xs"
-          >↺ Redraw room</button>
+          >↺ Clear floor</button>
         )}
         <span className="ml-auto text-gray-400">
-          {drawingTool === 'wall' && !pendingStart && (activeStory?.footprintPolygon.length ?? 0) >= 3 && 'Room closed — click Redraw to edit'}
-          {drawingTool === 'wall' && !pendingStart && (activeStory?.footprintPolygon.length ?? 0) < 3 && 'Click canvas to start wall'}
+          {drawingTool === 'wall' && !pendingStart && (activeStory?.rooms.length ?? 0) > 0 && `${activeStory?.rooms.length} room${activeStory?.rooms.length !== 1 ? 's' : ''} — draw to add another`}
+          {drawingTool === 'wall' && !pendingStart && (activeStory?.rooms.length ?? 0) === 0 && (activeStory?.footprintPolygon.length ?? 0) < 3 && 'Click canvas to start wall'}
           {drawingTool === 'wall' && pendingStart && (wallChain.length >= 2
             ? `${wallChain.length + 1} pts — type length + direction • Enter to commit • Right-click to undo • Close Shape to finish`
             : 'Type length → pick direction or click canvas • Right-click to undo')}
