@@ -1,8 +1,13 @@
 'use client'
-import { PlusCircle, Trash2, ChevronDown, ChevronRight, Copy, Square } from 'lucide-react'
+import { PlusCircle, Trash2, ChevronDown, ChevronRight, Copy, Square, Ruler } from 'lucide-react'
 import { useState } from 'react'
 import { useModelerStore } from '@/lib/modelerStore'
 import OpeningsPanel from './OpeningsPanel'
+
+function wallLength(start: { x: number; y: number }, end: { x: number; y: number }) {
+  const dx = end.x - start.x, dy = end.y - start.y
+  return Math.sqrt(dx * dx + dy * dy)
+}
 
 function shoelaceArea(pts: { x: number; y: number }[]): number {
   let a = 0
@@ -14,10 +19,13 @@ function shoelaceArea(pts: { x: number; y: number }[]): number {
 }
 
 export default function StoryPanel() {
-  const { stories, activeStoryId, addStory, removeStory, updateStory, setActiveStory, copyFootprintTo, roofConfig, updateRoof, showRoof, setShowRoof } =
+  const { stories, activeStoryId, addStory, removeStory, updateStory, setActiveStory, copyFootprintTo, roofConfig, updateRoof, showRoof, setShowRoof, selectedWallId, setSelectedWallId, updateWall } =
     useModelerStore()
   const [roofOpen, setRoofOpen] = useState(true)
   const [openingsOpen, setOpeningsOpen] = useState(true)
+  const [wallsOpen, setWallsOpen] = useState(true)
+
+  const activeStory = stories.find(s => s.id === activeStoryId)
 
   return (
     <div className="flex flex-col gap-3 p-3 bg-white border border-gray-200 rounded-xl text-sm h-full overflow-y-auto shadow-sm">
@@ -104,6 +112,47 @@ export default function StoryPanel() {
           )
         })}
       </div>
+
+      {/* Walls Section */}
+      {activeStory && activeStory.walls.length > 0 && (
+        <div className="border-t border-gray-200 pt-3">
+          <button
+            className="flex items-center gap-1 font-semibold text-gray-800 w-full mb-2"
+            onClick={() => setWallsOpen(v => !v)}
+          >
+            {wallsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            <Ruler size={12} /> Walls
+            <span className="ml-auto text-xs text-gray-400 font-normal">{activeStory.walls.length}</span>
+          </button>
+          {wallsOpen && (
+            <div className="flex flex-col gap-0.5">
+              {activeStory.walls.map((wall) => {
+                const len = wallLength(wall.start, wall.end)
+                const isSelected = wall.id === selectedWallId
+                return (
+                  <div
+                    key={wall.id}
+                    onClick={() => setSelectedWallId(isSelected ? null : wall.id)}
+                    className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs transition-colors ${
+                      isSelected ? 'bg-amber-50 border border-amber-300' : 'hover:bg-gray-50 border border-transparent'
+                    }`}
+                  >
+                    <input
+                      value={wall.name}
+                      onChange={(e) => updateWall(activeStory.id, wall.id, { name: e.target.value })}
+                      onClick={(e) => e.stopPropagation()}
+                      className={`flex-1 bg-transparent focus:outline-none focus:border-b text-xs min-w-0 ${
+                        isSelected ? 'text-amber-800 border-amber-400 font-medium' : 'text-gray-700 border-gray-300'
+                      }`}
+                    />
+                    <span className="text-gray-400 font-mono shrink-0">{len.toFixed(2)}m</span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Openings Section */}
       <div className="border-t border-gray-200 pt-3">

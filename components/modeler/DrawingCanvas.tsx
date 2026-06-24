@@ -54,7 +54,7 @@ export default function DrawingCanvas({ className }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const lengthInputRef = useRef<HTMLInputElement>(null)
 
-  const { stories, activeStoryId, drawingTool, gridSizeM, addWall, clearWalls, setFootprint, closePolygon } =
+  const { stories, activeStoryId, drawingTool, gridSizeM, addWall, clearWalls, setFootprint, closePolygon, selectedWallId, setSelectedWallId } =
     useModelerStore()
   const activeStory = stories.find((s) => s.id === activeStoryId)
 
@@ -77,12 +77,13 @@ export default function DrawingCanvas({ className }: Props) {
   // Keyboard measurement input
   const [kbLength, setKbLength] = useState('')
   const [kbDir, setKbDir] = useState<Point2D | null>(null)
+  const [wallName, setWallName] = useState('')
+  const wallNameInputRef = useRef<HTMLInputElement>(null)
 
   // Track the chain of placed vertices so we can undo and close shape
   const [wallChain, setWallChain] = useState<Point2D[]>([])
 
-  // Selected wall for measurement display
-  const [selectedWallId, setSelectedWallId] = useState<string | null>(null)
+  // Hovered wall (local only — no need for store)
   const [hoveredWallId, setHoveredWallId] = useState<string | null>(null)
 
   // Clear selection on storey switch
@@ -145,32 +146,39 @@ export default function DrawingCanvas({ className }: Props) {
     return snapToAngle(start, mouseWorld)
   }, [kbLength, kbDir, mouseWorld])
 
+  function nextWallName(): string {
+    const count = (activeStory?.walls.length ?? 0) + 1
+    return `Wall ${count}`
+  }
+
   function commitWall(overrideEnd?: Point2D) {
     if (!pendingStart || !activeStoryId) return
     const end = overrideEnd ?? previewEnd(pendingStart)
     const dx = end.x - pendingStart.x
     const dy = end.y - pendingStart.y
     if (Math.sqrt(dx * dx + dy * dy) < 0.05) return
-    addWall(activeStoryId, { start: pendingStart, end })
+    const name = wallName.trim() || nextWallName()
+    addWall(activeStoryId, { start: pendingStart, end }, name)
     setWallChain(prev => [...prev, pendingStart])
     setPendingStart(end)
     setKbLength('')
     setKbDir(null)
+    // Auto-advance wall name to next number
+    setWallName('')
     lengthInputRef.current?.focus()
   }
 
   function closeShape() {
     if (!pendingStart || !activeStoryId || wallChain.length < 2) return
     const firstPoint = wallChain[0]
-    // Draw the closing wall
-    addWall(activeStoryId, { start: pendingStart, end: firstPoint })
-    // Store the full footprint polygon so the 3D view can extrude it as a solid room
+    const closingName = wallName.trim() || nextWallName()
+    addWall(activeStoryId, { start: pendingStart, end: firstPoint }, closingName)
     setFootprint(activeStoryId, [...wallChain, pendingStart])
-    // Reset drawing state
     setPendingStart(null)
     setWallChain([])
     setKbLength('')
     setKbDir(null)
+    setWallName('')
   }
 
   // ── Zoom / Pan ────────────────────────────────────────────────────────────
@@ -311,19 +319,23 @@ export default function DrawingCanvas({ className }: Props) {
           ctx.beginPath(); ctx.arc(a.x, a.y, 3, 0, Math.PI * 2); ctx.fill()
           ctx.beginPath(); ctx.arc(b.x, b.y, 3, 0, Math.PI * 2); ctx.fill()
 
-          // Dimension label — always shown on active storey walls
+          // Dimension + name labels on active storey walls
           const dx = w.end.x - w.start.x, dy = w.end.y - w.start.y
           const len = Math.sqrt(dx * dx + dy * dy)
           if (len > 0.1) {
             const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
-            // Offset label perpendicular to wall
             const nx = -dy / len, ny = dx / len
-            const offsetPx = 10
+            const offsetPx = 12
             const lx = mid.x + nx * offsetPx, ly = mid.y + ny * offsetPx
-            ctx.font = `${isSelected ? 'bold ' : ''}${Math.min(11, zoom * 0.4 + 7)}px monospace`
-            ctx.fillStyle = isSelected ? '#b45309' : 'rgba(30,64,175,0.7)'
             ctx.textAlign = 'center'
-            ctx.fillText(`${len.toFixed(2)}m`, lx, ly)
+            // Wall name (above)
+            ctx.font = `${isSelected ? 'bold ' : ''}${Math.min(10, zoom * 0.35 + 6)}px sans-serif`
+            ctx.fillStyle = isSelected ? '#92400e' : 'rgba(71,85,105,0.8)'
+            ctx.fillText(w.name, lx, ly - 7)
+            // Length (below name)
+            ctx.font = `${Math.min(10, zoom * 0.35 + 5)}px monospace`
+            ctx.fillStyle = isSelected ? '#b45309' : 'rgba(30,64,175,0.7)'
+            ctx.fillText(`${len.toFixed(2)}m`, lx, ly + 4)
             ctx.textAlign = 'left'
           }
 
@@ -424,13 +436,20 @@ export default function DrawingCanvas({ className }: Props) {
       ctx.lineTo(b.x - aw * Math.cos(ang + 0.4), b.y - aw * Math.sin(ang + 0.4))
       ctx.closePath(); ctx.fill()
 
-      // Length label
+      // Wall name + length label on rubber-band
       const wdx = end.x - pendingStart.x, wdy = end.y - pendingStart.y
-      const len = Math.sqrt(wdx * wdx + wdy * wdy).toFixed(2)
+      const wLen = Math.sqrt(wdx * wdx + wdy * wdy)
       const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+      const nx = -wdy / (wLen || 1), ny = wdx / (wLen || 1)
+      ctx.textAlign = 'center'
+      const liveWallName = wallName.trim() || nextWallName()
+      ctx.fillStyle = '#1e40af'
+      ctx.font = 'bold 11px sans-serif'
+      ctx.fillText(liveWallName, mid.x + nx * 14, mid.y + ny * 14 - 7)
       ctx.fillStyle = '#92400e'
-      ctx.font = 'bold 12px monospace'
-      ctx.fillText(`${len}m`, mid.x + 4, mid.y - 6)
+      ctx.font = 'bold 11px monospace'
+      ctx.fillText(`${wLen.toFixed(2)}m`, mid.x + nx * 14, mid.y + ny * 14 + 5)
+      ctx.textAlign = 'left'
 
       // Start dot
       ctx.fillStyle = '#2563eb'
@@ -477,6 +496,11 @@ export default function DrawingCanvas({ className }: Props) {
       const hit = wallNearPoint(cx, cy, 10)
       if (hit) { setSelectedWallId(hit === selectedWallId ? null : hit); return }
       else setSelectedWallId(null)
+    }
+
+    // When starting a new wall, pre-fill wall name
+    if (drawingTool === 'wall' && !pendingStart) {
+      setWallName(nextWallName())
     }
 
     if (drawingTool === 'wall') {
@@ -542,12 +566,14 @@ export default function DrawingCanvas({ className }: Props) {
   }
 
   function handleDoubleClick() {
-    if (drawingTool === 'wall') {
-      if (wallChain.length >= 2) {
-        closeShape()
-      } else {
-        setPendingStart(null); setWallChain([]); setKbLength(''); setKbDir(null)
-      }
+    if (drawingTool === 'wall' && pendingStart) {
+      // Commit the current segment (if long enough) then end drawing
+      commitWall()
+      setPendingStart(null)
+      setWallChain([])
+      setKbLength('')
+      setKbDir(null)
+      setWallName('')
     }
     if (drawingTool === 'polygon' && polyPoints.length >= 3 && activeStoryId) {
       closePolygon(activeStoryId, polyPoints)
@@ -595,7 +621,7 @@ export default function DrawingCanvas({ className }: Props) {
 
   const zoomPct = Math.round((zoom / BASE_ZOOM) * 100)
 
-  // Measurement data for selected wall
+  // Measurement data for selected wall (uses store selectedWallId)
   const selectedWall = activeStory?.walls.find(w => w.id === selectedWallId) ?? null
   const selectedWallMeasure = selectedWall ? (() => {
     const dx = selectedWall.end.x - selectedWall.start.x
@@ -633,9 +659,9 @@ export default function DrawingCanvas({ className }: Props) {
       </div>
 
       {/* Selected wall measurement panel */}
-      {selectedWallMeasure && (
+      {selectedWallMeasure && selectedWall && (
         <div className="flex items-center gap-4 px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl text-xs shadow-sm">
-          <span className="font-semibold text-amber-800">Wall selected</span>
+          <span className="font-semibold text-amber-800">{selectedWall.name}</span>
           <span className="text-amber-700">Length: <span className="font-mono font-bold">{selectedWallMeasure.len.toFixed(2)} m</span></span>
           <span className="text-amber-700">Area: <span className="font-mono font-bold">{selectedWallMeasure.area.toFixed(2)} m²</span></span>
           <span className="text-amber-700">Bearing: <span className="font-mono font-bold">{selectedWallMeasure.cardinal} ({selectedWallMeasure.bearingDeg.toFixed(0)}°)</span></span>
@@ -646,6 +672,18 @@ export default function DrawingCanvas({ className }: Props) {
       {/* Keyboard measurement panel — shown when a wall is in progress */}
       {drawingTool === 'wall' && pendingStart && (
         <div className="flex items-center gap-3 px-3 py-2 bg-white border border-gray-200 rounded-xl shadow-sm">
+          {/* Wall name */}
+          <span className="text-xs text-gray-500 shrink-0">Name</span>
+          <input
+            ref={wallNameInputRef}
+            type="text"
+            placeholder={nextWallName()}
+            value={wallName}
+            onChange={(e) => setWallName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Tab') { e.preventDefault(); lengthInputRef.current?.focus() } }}
+            className="w-24 bg-white border border-gray-200 rounded-lg px-2 py-1 text-gray-800 text-sm focus:outline-none focus:border-blue-400"
+          />
+          <div className="h-4 w-px bg-gray-200" />
           {/* Step 1 */}
           <span className="text-xs text-gray-500 shrink-0">① Length&nbsp;(m)</span>
           <input

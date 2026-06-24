@@ -9,6 +9,7 @@ export interface Point2D {
 
 export interface Wall {
   id: string
+  name: string
   start: Point2D
   end: Point2D
 }
@@ -72,6 +73,7 @@ export type DrawingTool = 'select' | 'wall' | 'polygon'
 interface ModelerState {
   stories: Story[]
   activeStoryId: string | null
+  selectedWallId: string | null
   roofConfig: RoofConfig
   drawingTool: DrawingTool
   showRoof: boolean
@@ -82,13 +84,15 @@ interface ModelerState {
   updateStory: (id: string, patch: Partial<Omit<Story, 'id' | 'walls' | 'footprintPolygon' | 'openings'>>) => void
   setActiveStory: (id: string) => void
 
-  addWall: (storyId: string, wall: Omit<Wall, 'id'>) => void
+  addWall: (storyId: string, wall: Omit<Wall, 'id' | 'name'>, name?: string) => void
+  updateWall: (storyId: string, wallId: string, patch: Partial<Pick<Wall, 'name'>>) => void
   removeWall: (storyId: string, wallId: string) => void
   clearWalls: (storyId: string) => void
   setFootprint: (storyId: string, polygon: Point2D[]) => void
-  // Close a polygon: sets footprint AND generates one Wall per edge (enables openings)
   closePolygon: (storyId: string, polygon: Point2D[]) => void
   copyFootprintTo: (fromStoryId: string, toStoryId: string) => void
+
+  setSelectedWallId: (id: string | null) => void
 
   // Openings
   addOpening: (storyId: string, opening: Omit<Opening, 'id'>) => void
@@ -126,6 +130,7 @@ const initial = makeStory(0)
 export const useModelerStore = create<ModelerState>((set) => ({
   stories: [initial],
   activeStoryId: initial.id,
+  selectedWallId: null,
   roofConfig: { type: 'gable', pitchDegrees: 30, ridgeOffsetFraction: 0.5 },
   drawingTool: 'wall',
   showRoof: true,
@@ -157,10 +162,21 @@ export const useModelerStore = create<ModelerState>((set) => ({
 
   setActiveStory: (id) => set({ activeStoryId: id }),
 
-  addWall: (storyId, wall) =>
+  addWall: (storyId, wall, name) =>
+    set((s) => ({
+      stories: s.stories.map((st) => {
+        if (st.id !== storyId) return st
+        const autoName = name ?? `Wall ${st.walls.length + 1}`
+        return { ...st, walls: [...st.walls, { ...wall, id: uid(), name: autoName }] }
+      }),
+    })),
+
+  updateWall: (storyId, wallId, patch) =>
     set((s) => ({
       stories: s.stories.map((st) =>
-        st.id === storyId ? { ...st, walls: [...st.walls, { ...wall, id: uid() }] } : st
+        st.id === storyId
+          ? { ...st, walls: st.walls.map((w) => (w.id === wallId ? { ...w, ...patch } : w)) }
+          : st
       ),
     })),
 
@@ -191,6 +207,7 @@ export const useModelerStore = create<ModelerState>((set) => ({
         if (st.id !== storyId) return st
         const walls: Wall[] = polygon.map((pt, i) => ({
           id: uid(),
+          name: `Wall ${i + 1}`,
           start: pt,
           end: polygon[(i + 1) % polygon.length],
         }))
@@ -205,11 +222,13 @@ export const useModelerStore = create<ModelerState>((set) => ({
       return {
         stories: s.stories.map((st) =>
           st.id === toStoryId
-            ? { ...st, walls: src.walls.map((w) => ({ ...w, id: uid() })), footprintPolygon: [...src.footprintPolygon], openings: [] }
+            ? { ...st, walls: src.walls.map((w) => ({ ...w, id: uid(), name: w.name })), footprintPolygon: [...src.footprintPolygon], openings: [] }
             : st
         ),
       }
     }),
+
+  setSelectedWallId: (id) => set({ selectedWallId: id }),
 
   addOpening: (storyId, opening) =>
     set((s) => ({
