@@ -158,12 +158,26 @@ export default function DrawingCanvas({ className }: Props) {
     const dy = end.y - pendingStart.y
     if (Math.sqrt(dx * dx + dy * dy) < 0.05) return
     const name = wallName.trim() || nextWallName()
+
+    // Auto-close if endpoint snaps back to the first chain point
+    if (wallChain.length >= 2) {
+      const first = wallChain[0]
+      const snapDist = Math.sqrt((end.x - first.x) ** 2 + (end.y - first.y) ** 2)
+      if (snapDist <= gridSizeM * 0.6) {
+        addWall(activeStoryId, { start: pendingStart, end: first }, name)
+        setFootprint(activeStoryId, [...wallChain, pendingStart])
+        setPendingStart(null)
+        setWallChain([])
+        setKbLength(''); setKbDir(null); setWallName('')
+        return
+      }
+    }
+
     addWall(activeStoryId, { start: pendingStart, end }, name)
     setWallChain(prev => [...prev, pendingStart])
     setPendingStart(end)
     setKbLength('')
     setKbDir(null)
-    // Auto-advance wall name to next number
     setWallName('')
     lengthInputRef.current?.focus()
   }
