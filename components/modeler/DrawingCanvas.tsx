@@ -404,30 +404,38 @@ export default function DrawingCanvas({ className }: Props) {
         }
       }
 
-      if (story.footprintPolygon.length >= 3) {
-        // Filled footprint polygon — blue tint
-        ctx.strokeStyle = isActive ? '#3b82f6' : '#93c5fd'
-        ctx.fillStyle = isActive ? 'rgba(59,130,246,0.06)' : 'rgba(59,130,246,0.03)'
-        ctx.lineWidth = isActive ? 1.5 : 1
-        ctx.setLineDash(isActive ? [] : [4, 4])
-        ctx.beginPath()
-        const first = worldToCanvas(story.footprintPolygon[0], pan, zoom)
-        ctx.moveTo(first.x, first.y)
-        for (let i = 1; i < story.footprintPolygon.length; i++) {
-          const pt = worldToCanvas(story.footprintPolygon[i], pan, zoom)
-          ctx.lineTo(pt.x, pt.y)
-        }
-        ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.setLineDash([])
+      // Render room polygons (use rooms[] if present, fall back to footprintPolygon)
+      const roomPolygons = story.rooms.length > 0
+        ? story.rooms.map(r => ({ polygon: r.polygon, label: r.name }))
+        : story.footprintPolygon.length >= 3
+          ? [{ polygon: story.footprintPolygon, label: story.name }]
+          : []
 
-        // Room label at centroid
-        const cxW = story.footprintPolygon.reduce((s, p) => s + p.x, 0) / story.footprintPolygon.length
-        const cyW = story.footprintPolygon.reduce((s, p) => s + p.y, 0) / story.footprintPolygon.length
-        const cc = worldToCanvas({ x: cxW, y: cyW }, pan, zoom)
-        ctx.font = `bold ${Math.min(14, zoom * 0.5)}px sans-serif`
-        ctx.textAlign = 'center'
-        ctx.fillStyle = isActive ? '#1d4ed8' : '#93c5fd'
-        ctx.fillText(story.name, cc.x, cc.y)
-        ctx.textAlign = 'left'
+      if (roomPolygons.length > 0) {
+        for (const { polygon, label } of roomPolygons) {
+          ctx.strokeStyle = isActive ? '#3b82f6' : '#93c5fd'
+          ctx.fillStyle = isActive ? 'rgba(59,130,246,0.06)' : 'rgba(59,130,246,0.03)'
+          ctx.lineWidth = isActive ? 1.5 : 1
+          ctx.setLineDash(isActive ? [] : [4, 4])
+          ctx.beginPath()
+          const first = worldToCanvas(polygon[0], pan, zoom)
+          ctx.moveTo(first.x, first.y)
+          for (let i = 1; i < polygon.length; i++) {
+            const pt = worldToCanvas(polygon[i], pan, zoom)
+            ctx.lineTo(pt.x, pt.y)
+          }
+          ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.setLineDash([])
+
+          // Room label at centroid
+          const cxW = polygon.reduce((s, p) => s + p.x, 0) / polygon.length
+          const cyW = polygon.reduce((s, p) => s + p.y, 0) / polygon.length
+          const cc = worldToCanvas({ x: cxW, y: cyW }, pan, zoom)
+          ctx.font = `bold ${Math.min(14, zoom * 0.5)}px sans-serif`
+          ctx.textAlign = 'center'
+          ctx.fillStyle = isActive ? '#1d4ed8' : '#93c5fd'
+          ctx.fillText(label, cc.x, cc.y)
+          ctx.textAlign = 'left'
+        }
       } else if (isActive && story.footprintPolygon.length >= 2) {
         ctx.strokeStyle = '#3b82f6'
         ctx.lineWidth = 1.5
