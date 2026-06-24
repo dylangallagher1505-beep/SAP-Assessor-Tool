@@ -17,7 +17,4 @@ tsconfig.tsbuildinfo
 # Misc
 .DS_Store
 *.log
-
-# Claude Code working files
 .claude/
-verify-modeller.js

@@ -4,6 +4,7 @@ import ThreeDPreview from './ThreeDPreview'
 import StoryPanel from './StoryPanel'
 import TakeoffPanel from './TakeoffPanel'
 import Toolbar from './Toolbar'
+import FaceEditorPanel from './FaceEditorPanel'
 
 export default function ModelerApp() {
   return (
@@ -25,9 +26,10 @@ export default function ModelerApp() {
           <DrawingCanvas className="flex-1" />
         </div>
 
-        {/* Right: 3D Preview */}
-        <div className="flex-1 min-w-0 flex flex-col gap-3">
+        {/* Right: 3D Preview (with face editor overlay) */}
+        <div className="flex-1 min-w-0 flex flex-col gap-3 relative">
           <ThreeDPreview className="flex-1" />
+          <FaceEditorPanel />
         </div>
 
         {/* Far right: Takeoff */}

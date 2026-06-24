@@ -9,6 +9,7 @@ export interface Point2D {
 
 export interface Wall {
   id: string
+  name: string
   start: Point2D
   end: Point2D
 }
@@ -69,9 +70,21 @@ export interface RoofTakeoff {
 
 export type DrawingTool = 'select' | 'wall' | 'polygon'
 
+// Snapshot of one story's walls+openings+footprint for undo
+type WallSnapshot = Pick<Story, 'id' | 'walls' | 'openings' | 'footprintPolygon'>
+
+// Selected face in the 3D view
+export type SelectedFace =
+  | { type: 'wall'; storyId: string; wallId: string }
+  | { type: 'roof'; faceIndex: number; faceLabel: string }
+  | null
+
 interface ModelerState {
   stories: Story[]
   activeStoryId: string | null
+  selectedWallId: string | null
+  selectedFace: SelectedFace
+  wallHistory: WallSnapshot[]  // undo stack (most recent last)
   roofConfig: RoofConfig
   drawingTool: DrawingTool
   showRoof: boolean
@@ -82,13 +95,17 @@ interface ModelerState {
   updateStory: (id: string, patch: Partial<Omit<Story, 'id' | 'walls' | 'footprintPolygon' | 'openings'>>) => void
   setActiveStory: (id: string) => void
 
-  addWall: (storyId: string, wall: Omit<Wall, 'id'>) => void
+  addWall: (storyId: string, wall: Omit<Wall, 'id' | 'name'>, name?: string) => void
+  updateWall: (storyId: string, wallId: string, patch: Partial<Pick<Wall, 'name'>>) => void
   removeWall: (storyId: string, wallId: string) => void
+  undoWall: (storyId: string) => void
   clearWalls: (storyId: string) => void
   setFootprint: (storyId: string, polygon: Point2D[]) => void
-  // Close a polygon: sets footprint AND generates one Wall per edge (enables openings)
   closePolygon: (storyId: string, polygon: Point2D[]) => void
   copyFootprintTo: (fromStoryId: string, toStoryId: string) => void
+
+  setSelectedWallId: (id: string | null) => void
+  setSelectedFace: (face: SelectedFace) => void
 
   // Openings
   addOpening: (storyId: string, opening: Omit<Opening, 'id'>) => void
@@ -126,6 +143,9 @@ const initial = makeStory(0)
 export const useModelerStore = create<ModelerState>((set) => ({
   stories: [initial],
   activeStoryId: initial.id,
+  selectedWallId: null,
+  selectedFace: null,
+  wallHistory: [],
   roofConfig: { type: 'gable', pitchDegrees: 30, ridgeOffsetFraction: 0.5 },
   drawingTool: 'wall',
   showRoof: true,
@@ -157,18 +177,61 @@ export const useModelerStore = create<ModelerState>((set) => ({
 
   setActiveStory: (id) => set({ activeStoryId: id }),
 
-  addWall: (storyId, wall) =>
+  addWall: (storyId, wall, name) =>
+    set((s) => {
+      const st = s.stories.find(x => x.id === storyId)
+      const snapshot: WallSnapshot = st
+        ? { id: st.id, walls: st.walls, openings: st.openings, footprintPolygon: st.footprintPolygon }
+        : { id: storyId, walls: [], openings: [], footprintPolygon: [] }
+      return {
+        wallHistory: [...s.wallHistory.slice(-49), snapshot],
+        stories: s.stories.map((st) => {
+          if (st.id !== storyId) return st
+          const autoName = name ?? `Wall ${st.walls.length + 1}`
+          return { ...st, walls: [...st.walls, { ...wall, id: uid(), name: autoName }] }
+        }),
+      }
+    }),
+
+  updateWall: (storyId, wallId, patch) =>
     set((s) => ({
       stories: s.stories.map((st) =>
-        st.id === storyId ? { ...st, walls: [...st.walls, { ...wall, id: uid() }] } : st
+        st.id === storyId
+          ? { ...st, walls: st.walls.map((w) => (w.id === wallId ? { ...w, ...patch } : w)) }
+          : st
       ),
     })),
 
+  undoWall: (storyId) =>
+    set((s) => {
+      // Find the most recent snapshot for this story
+      const idx = [...s.wallHistory].reverse().findIndex(snap => snap.id === storyId)
+      if (idx === -1) return s
+      const realIdx = s.wallHistory.length - 1 - idx
+      const snap = s.wallHistory[realIdx]
+      return {
+        wallHistory: s.wallHistory.filter((_, i) => i !== realIdx),
+        selectedWallId: null,
+        stories: s.stories.map((st) =>
+          st.id === storyId
+            ? { ...st, walls: snap.walls, openings: snap.openings, footprintPolygon: snap.footprintPolygon }
+            : st
+        ),
+      }
+    }),
+
   removeWall: (storyId, wallId) =>
     set((s) => ({
-      stories: s.stories.map((st) =>
-        st.id === storyId ? { ...st, walls: st.walls.filter((w) => w.id !== wallId) } : st
-      ),
+      stories: s.stories.map((st) => {
+        if (st.id !== storyId) return st
+        // Removing any wall from a closed room reopens it (footprint no longer valid)
+        return {
+          ...st,
+          walls: st.walls.filter((w) => w.id !== wallId),
+          openings: st.openings.filter((o) => o.wallId !== wallId),
+          footprintPolygon: st.footprintPolygon.length > 0 ? [] : st.footprintPolygon,
+        }
+      }),
     })),
 
   clearWalls: (storyId) =>
@@ -186,17 +249,25 @@ export const useModelerStore = create<ModelerState>((set) => ({
     })),
 
   closePolygon: (storyId, polygon) =>
-    set((s) => ({
-      stories: s.stories.map((st) => {
-        if (st.id !== storyId) return st
-        const walls: Wall[] = polygon.map((pt, i) => ({
-          id: uid(),
-          start: pt,
-          end: polygon[(i + 1) % polygon.length],
-        }))
-        return { ...st, footprintPolygon: polygon, walls, openings: [] }
-      }),
-    })),
+    set((s) => {
+      const st = s.stories.find(x => x.id === storyId)
+      const snapshot: WallSnapshot = st
+        ? { id: st.id, walls: st.walls, openings: st.openings, footprintPolygon: st.footprintPolygon }
+        : { id: storyId, walls: [], openings: [], footprintPolygon: [] }
+      return {
+        wallHistory: [...s.wallHistory.slice(-49), snapshot],
+        stories: s.stories.map((st) => {
+          if (st.id !== storyId) return st
+          const walls: Wall[] = polygon.map((pt, i) => ({
+            id: uid(),
+            name: `Wall ${i + 1}`,
+            start: pt,
+            end: polygon[(i + 1) % polygon.length],
+          }))
+          return { ...st, footprintPolygon: polygon, walls, openings: [] }
+        }),
+      }
+    }),
 
   copyFootprintTo: (fromStoryId, toStoryId) =>
     set((s) => {
@@ -205,11 +276,14 @@ export const useModelerStore = create<ModelerState>((set) => ({
       return {
         stories: s.stories.map((st) =>
           st.id === toStoryId
-            ? { ...st, walls: src.walls.map((w) => ({ ...w, id: uid() })), footprintPolygon: [...src.footprintPolygon], openings: [] }
+            ? { ...st, walls: src.walls.map((w) => ({ ...w, id: uid(), name: w.name })), footprintPolygon: [...src.footprintPolygon], openings: [] }
             : st
         ),
       }
     }),
+
+  setSelectedWallId: (id) => set({ selectedWallId: id }),
+  setSelectedFace: (face) => set({ selectedFace: face }),
 
   addOpening: (storyId, opening) =>
     set((s) => ({
