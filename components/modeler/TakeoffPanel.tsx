@@ -161,8 +161,10 @@ export default function TakeoffPanel() {
 
   const totalFloor = storyTakeoffs.reduce((s, t) => s + t.floorArea, 0)
   const totalWall = storyTakeoffs.reduce((s, t) => s + t.wallSurfaceArea, 0)
-  const totalWindowArea = stories.flatMap(s => s.openings.filter(o => o.type === 'window')).reduce((s, o) => s + o.width * o.height, 0)
+  const allWindows = stories.flatMap(s => s.openings.filter(o => o.type === 'window'))
+  const totalWindowArea = allWindows.reduce((s, o) => s + o.width * o.height, 0)
   const totalDoorArea = stories.flatMap(s => s.openings.filter(o => o.type === 'door')).reduce((s, o) => s + o.width * o.height, 0)
+  const effectiveSolarArea = allWindows.reduce((s, o) => s + o.width * o.height * (o.gValue ?? 0.63) * 0.9, 0)
   const totalHeatLoss = fabricRows.reduce((s, r) => s + r.heatLossArea * r.uValue, 0)
   const totalExternalArea = fabricRows.reduce((s, r) => s + r.heatLossArea, 0)
   const thermalBridgingHL = totalExternalArea * yFactor
@@ -210,6 +212,12 @@ export default function TakeoffPanel() {
               <div className="text-xs text-amber-600">Doors</div>
               <div className="text-lg font-bold text-amber-800">{fmt(totalDoorArea)} m²</div>
             </div>
+            {effectiveSolarArea > 0 && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-2 col-span-2">
+                <div className="text-xs text-yellow-600">Effective Solar Area (0.9×A×g)</div>
+                <div className="text-lg font-bold text-yellow-800">{fmt(effectiveSolarArea)} m²</div>
+              </div>
+            )}
           </div>
 
           {/* Per-story */}
