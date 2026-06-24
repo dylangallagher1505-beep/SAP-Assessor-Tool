@@ -146,7 +146,9 @@ function exportCSV(rows: FabricRow[]) {
 export default function TakeoffPanel() {
   const { stories, roofConfig } = useModelerStore()
   const [tab, setTab] = useState<'summary' | 'schedule'>('summary')
-  const [yFactor, setYFactor] = useState(0.05)  // SAP default Appendix K y-factor
+  const [yFactor, setYFactor] = useState(0.05)   // SAP default Appendix K y-factor
+  const [achN50, setAchN50] = useState(10)        // air changes/hr at 50 Pa (test pressure)
+  const [ventType, setVentType] = useState<'natural' | 'mev' | 'mvhr'>('natural')
 
   const storyTakeoffs = useMemo(() => stories.map(calcStoryTakeoff), [stories])
   const roofTakeoff = useMemo(() => {
@@ -164,6 +166,17 @@ export default function TakeoffPanel() {
   const totalHeatLoss = fabricRows.reduce((s, r) => s + r.heatLossArea * r.uValue, 0)
   const totalExternalArea = fabricRows.reduce((s, r) => s + r.heatLossArea, 0)
   const thermalBridgingHL = totalExternalArea * yFactor
+
+  // Ventilation heat loss (SAP simplified)
+  const totalVolume = storyTakeoffs.reduce((s, t, i) => s + t.floorArea * (stories[i]?.storyHeight ?? 2.5), 0)
+  // effective ACH: n50 / 20 for natural, /20 with adjustment for MEV/MVHR
+  const mvhrEfficiency = 0.7  // typical MVHR efficiency
+  const effectiveACH = ventType === 'natural'
+    ? achN50 / 20
+    : ventType === 'mev'
+      ? achN50 / 20 * 0.9
+      : achN50 / 20 * (1 - mvhrEfficiency)
+  const ventHeatLoss = 0.33 * effectiveACH * totalVolume  // W/K
 
   return (
     <div className="flex flex-col gap-3 p-3 bg-white border border-gray-200 rounded-xl text-sm h-full overflow-y-auto shadow-sm">
@@ -247,6 +260,44 @@ export default function TakeoffPanel() {
               <div className="text-xs text-amber-600 font-semibold mt-1 text-right">
                 Total: {fmt(totalHeatLoss + thermalBridgingHL, 1)} W/K
               </div>
+            </div>
+          )}
+
+          {/* Ventilation heat loss */}
+          {totalVolume > 0 && (
+            <div className="bg-teal-50 border border-teal-200 rounded-lg p-2 flex flex-col gap-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-teal-600 font-medium">Ventilation Heat Loss (HV)</span>
+                <span className="text-sm font-bold text-teal-800">{fmt(ventHeatLoss, 1)} W/K</span>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-teal-700">
+                <label>n50</label>
+                <input
+                  type="number" step={1} min={1} max={30}
+                  value={achN50}
+                  onChange={e => setAchN50(parseFloat(e.target.value) || 10)}
+                  className="w-12 bg-white border border-teal-200 rounded px-1.5 py-0.5 text-teal-800 focus:outline-none"
+                />
+                <span className="text-teal-500">ac/h</span>
+                <select
+                  value={ventType}
+                  onChange={e => setVentType(e.target.value as 'natural' | 'mev' | 'mvhr')}
+                  className="flex-1 bg-white border border-teal-200 rounded px-1 py-0.5 text-teal-700 focus:outline-none text-[10px]"
+                >
+                  <option value="natural">Natural</option>
+                  <option value="mev">MEV</option>
+                  <option value="mvhr">MVHR</option>
+                </select>
+              </div>
+              <div className="text-[10px] text-teal-500">Volume {fmt(totalVolume, 0)} m³ · eff ACH {effectiveACH.toFixed(2)}</div>
+            </div>
+          )}
+
+          {/* Combined HT + HV */}
+          {totalHeatLoss > 0 && totalVolume > 0 && (
+            <div className="bg-orange-50 border border-orange-200 rounded-lg p-2 flex items-center justify-between">
+              <span className="text-xs text-orange-600 font-medium">Total HL (HT + HV)</span>
+              <span className="text-base font-bold text-orange-800">{fmt(totalHeatLoss + thermalBridgingHL + ventHeatLoss, 1)} W/K</span>
             </div>
           )}
 
