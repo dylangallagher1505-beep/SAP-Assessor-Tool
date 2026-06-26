@@ -47,10 +47,22 @@ function calcUValue(layers: Layer[], heatFlow: HeatFlow): { u: number; rtotal: n
   return { u: 1 / rtotal, rtotal, valid: unknowns.length === 0, unknowns }
 }
 
+// Default wall construction (typical UK timber frame, ~0.18 W/m²K)
+const DEFAULT_LAYERS: Omit<Layer, 'id'>[] = [
+  { description: 'Brick outer leaf', thickness_mm: 102, lambda: 0.77, resistance: null, notes: '' },
+  { description: 'Cavity (unventilated)', thickness_mm: null, lambda: null, resistance: 0.18, notes: '' },
+  { description: 'Mineral wool insulation', thickness_mm: 100, lambda: 0.038, resistance: null, notes: '' },
+  { description: 'Plasterboard', thickness_mm: 12.5, lambda: 0.21, resistance: null, notes: '' },
+]
+
+function defaultLayers(): Layer[] {
+  return DEFAULT_LAYERS.map(l => ({ ...l, id: uid() }))
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function UValueCalculator() {
-  const [layers, setLayers] = useState<Layer[]>([emptyLayer()])
+  const [layers, setLayers] = useState<Layer[]>(defaultLayers())
   const [heatFlow, setHeatFlow] = useState<HeatFlow>('horizontal')
   const [specText, setSpecText] = useState('')
   const [parsing, setParsing] = useState(false)
@@ -96,9 +108,20 @@ export default function UValueCalculator() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: specText || undefined, imageBase64, mediaType }),
       })
-      if (!res.ok) throw new Error(await res.text())
+      if (!res.ok) {
+        const text = await res.text()
+        if (text.includes('ANTHROPIC_API_KEY') || res.status === 500) {
+          throw new Error('API key not configured. Add ANTHROPIC_API_KEY to your Vercel environment variables (Settings → Environment Variables), then redeploy.')
+        }
+        throw new Error(text)
+      }
       const data = await res.json()
-      if (data.error) throw new Error(data.error)
+      if (data.error) {
+        if (String(data.error).includes('API key') || String(data.error).includes('authentication')) {
+          throw new Error('API key not configured. Add ANTHROPIC_API_KEY to your Vercel environment variables (Settings → Environment Variables), then redeploy.')
+        }
+        throw new Error(data.error)
+      }
       setHeatFlow(data.heatFlowDirection ?? 'horizontal')
       setLayers((data.layers ?? []).map((l: Omit<Layer, 'id'>) => ({ ...l, id: uid() })))
       setInputOpen(false)
@@ -267,12 +290,24 @@ export default function UValueCalculator() {
           <span /><span />
         </div>
 
-        <div className="px-3 py-2">
+        <div className="px-3 py-2 flex items-center gap-3">
           <button
             onClick={addLayer}
             className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
           >
             <PlusCircle size={12} /> Add layer
+          </button>
+          <button
+            onClick={() => setLayers(defaultLayers())}
+            className="text-xs text-gray-400 hover:text-gray-600"
+          >
+            Reset example
+          </button>
+          <button
+            onClick={() => setLayers([emptyLayer()])}
+            className="text-xs text-gray-400 hover:text-gray-600"
+          >
+            Clear all
           </button>
         </div>
       </div>
