@@ -19,7 +19,7 @@ function shoelaceArea(pts: { x: number; y: number }[]): number {
 }
 
 export default function StoryPanel() {
-  const { stories, activeStoryId, addStory, removeStory, updateStory, setActiveStory, copyFootprintTo, roofConfig, updateRoof, showRoof, setShowRoof, selectedWallId, setSelectedWallId, updateWall, removeWall, undoWall, wallHistory, updateRoom, removeRoom } =
+  const { stories, activeStoryId, addStory, removeStory, updateStory, setActiveStory, copyFootprintTo, roofConfig, updateRoof, showRoof, setShowRoof, selectedWallId, setSelectedWallId, updateWall, removeWall, undo, history, updateRoom, removeRoom } =
     useModelerStore()
   const [roofOpen, setRoofOpen] = useState(true)
   const [openingsOpen, setOpeningsOpen] = useState(true)
@@ -210,10 +210,10 @@ export default function StoryPanel() {
                   </div>
                 )
               })}
-              {/* Undo button — shown when there's history for this story */}
-              {wallHistory.some(s => s.id === activeStory.id) && (
+              {/* Undo button — shown when there's history */}
+              {history.length > 0 && (
                 <button
-                  onClick={() => undoWall(activeStory.id)}
+                  onClick={() => undo()}
                   className="flex items-center gap-1 mt-1 text-xs text-blue-500 hover:text-blue-700 px-2"
                 >
                   ↩ Undo last change

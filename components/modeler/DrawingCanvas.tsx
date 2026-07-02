@@ -68,7 +68,7 @@ export default function DrawingCanvas({ className }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const lengthInputRef = useRef<HTMLInputElement>(null)
 
-  const { stories, activeStoryId, drawingTool, gridSizeM, addWall, clearWalls, setFootprint, closePolygon, registerRoom, selectedWallId, setSelectedWallId, removeWall, undoWall, wallHistory, moveVertex } =
+  const { stories, activeStoryId, drawingTool, gridSizeM, addWall, clearWalls, setFootprint, closePolygon, registerRoom, selectedWallId, setSelectedWallId, removeWall, moveVertex, moveEdge, insertVertex, deleteVertex, setWallLength, pushHistory, undo, redo } =
     useModelerStore()
   const activeStory = stories.find((s) => s.id === activeStoryId)
 
@@ -108,6 +108,21 @@ export default function DrawingCanvas({ className }: Props) {
   const [dragVertex, setDragVertex] = useState<{ roomIdx: number; vertIdx: number } | null>(null)
   const isDraggingVertex = useRef(false)
 
+  // Edge drag state (select tool) — slide a whole wall along its normal
+  const dragEdge = useRef<{
+    roomId: string
+    edgeIdx: number
+    origA: Point2D
+    origB: Point2D
+    normal: Point2D
+    startWorld: Point2D
+  } | null>(null)
+  const didDrag = useRef(false)
+
+  // Exact-length editing of the selected wall
+  const [lenEdit, setLenEdit] = useState('')
+  const [lenAnchor, setLenAnchor] = useState<'start' | 'end'>('start')
+
   // Clear selection on storey switch
   useEffect(() => {
     setSelectedWallId(null)
@@ -138,6 +153,45 @@ export default function DrawingCanvas({ className }: Props) {
       if (distToSegmentPx(cx, cy, a.x, a.y, b.x, b.y) < threshold) return w.id
     }
     return null
+  }
+
+  /** Room polygon vertex under the cursor (world pt), or null. */
+  function vertexNearPoint(pt: Point2D): { roomIdx: number; vertIdx: number } | null {
+    if (!activeStory) return null
+    const snapR = gridSizeM * 0.8
+    for (let ri = 0; ri < activeStory.rooms.length; ri++) {
+      const room = activeStory.rooms[ri]
+      for (let vi = 0; vi < room.polygon.length; vi++) {
+        const v = room.polygon[vi]
+        if (Math.sqrt((v.x - pt.x) ** 2 + (v.y - pt.y) ** 2) < snapR) return { roomIdx: ri, vertIdx: vi }
+      }
+    }
+    return null
+  }
+
+  /** Room polygon edge near the canvas point (excluding endpoints), or null. */
+  function edgeNearPoint(cx: number, cy: number, threshold = 8): { roomIdx: number; edgeIdx: number } | null {
+    if (!activeStory) return null
+    for (let ri = 0; ri < activeStory.rooms.length; ri++) {
+      const poly = activeStory.rooms[ri].polygon
+      for (let ei = 0; ei < poly.length; ei++) {
+        const a = worldToCanvas(poly[ei], pan, zoom)
+        const b = worldToCanvas(poly[(ei + 1) % poly.length], pan, zoom)
+        // Skip if cursor is on an endpoint — vertex interactions win
+        const nearEnd = Math.sqrt((cx - a.x) ** 2 + (cy - a.y) ** 2) < 12 || Math.sqrt((cx - b.x) ** 2 + (cy - b.y) ** 2) < 12
+        if (!nearEnd && distToSegmentPx(cx, cy, a.x, a.y, b.x, b.y) < threshold) return { roomIdx: ri, edgeIdx: ei }
+      }
+    }
+    return null
+  }
+
+  /** Project a world point onto the segment a→b (clamped away from the ends). */
+  function projectOntoEdge(pt: Point2D, a: Point2D, b: Point2D): Point2D {
+    const dx = b.x - a.x, dy = b.y - a.y
+    const lenSq = dx * dx + dy * dy
+    if (lenSq < 1e-6) return a
+    const t = Math.max(0.05, Math.min(0.95, ((pt.x - a.x) * dx + (pt.y - a.y) * dy) / lenSq))
+    return { x: a.x + t * dx, y: a.y + t * dy }
   }
 
   const getCanvasPos = useCallback((e: MouseEvent | React.MouseEvent): { cx: number; cy: number } => {
@@ -246,6 +300,12 @@ export default function DrawingCanvas({ className }: Props) {
       // Don't intercept when typing in inputs
       if ((e.target as HTMLElement).tagName === 'INPUT') return
 
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) {
+        e.preventDefault()
+        redo()
+        return
+      }
+
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
         e.preventDefault()
         if (pendingStart && wallChain.length > 0) {
@@ -256,9 +316,9 @@ export default function DrawingCanvas({ className }: Props) {
           setWallChain(prev => prev.slice(0, -1))
           setPendingStart(prevPoint)
           setKbLength(''); setKbDir(null)
-        } else if (activeStoryId) {
-          // Outside drawing: undo last committed wall batch
-          undoWall(activeStoryId)
+        } else {
+          // Outside drawing: global undo
+          undo()
         }
       }
 
@@ -283,7 +343,7 @@ export default function DrawingCanvas({ className }: Props) {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [pendingStart, wallChain, polyPoints, activeStory, activeStoryId, selectedWallId, removeWall, undoWall, setSelectedWallId])
+  }, [pendingStart, wallChain, polyPoints, activeStory, activeStoryId, selectedWallId, removeWall, undo, redo, setSelectedWallId])
 
   // ── Zoom / Pan ────────────────────────────────────────────────────────────
 
@@ -335,18 +395,35 @@ export default function DrawingCanvas({ className }: Props) {
       panStart.current = { mx: e.clientX, my: e.clientY, pan: { ...pan } }
       return
     }
-    // Vertex drag — select tool, left button
+    // Vertex / edge drag — select tool, left button
     if (e.button === 0 && drawingTool === 'select' && activeStory) {
       const pt = getWorldPos(e)
-      const snapR = gridSizeM * 0.8
-      for (let ri = 0; ri < activeStory.rooms.length; ri++) {
-        const room = activeStory.rooms[ri]
-        for (let vi = 0; vi < room.polygon.length; vi++) {
-          const v = room.polygon[vi]
-          if (Math.sqrt((v.x - pt.x) ** 2 + (v.y - pt.y) ** 2) < snapR) {
-            setDragVertex({ roomIdx: ri, vertIdx: vi })
-            isDraggingVertex.current = true
-            return
+      didDrag.current = false
+
+      const hit = vertexNearPoint(pt)
+      if (hit) {
+        pushHistory()
+        setDragVertex(hit)
+        isDraggingVertex.current = true
+        return
+      }
+
+      const { cx, cy } = getCanvasPos(e)
+      const edgeHit = edgeNearPoint(cx, cy)
+      if (edgeHit) {
+        const room = activeStory.rooms[edgeHit.roomIdx]
+        const a = room.polygon[edgeHit.edgeIdx]
+        const b = room.polygon[(edgeHit.edgeIdx + 1) % room.polygon.length]
+        const len = Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2)
+        if (len > 0.01) {
+          pushHistory()
+          dragEdge.current = {
+            roomId: room.id,
+            edgeIdx: edgeHit.edgeIdx,
+            origA: a,
+            origB: b,
+            normal: { x: -(b.y - a.y) / len, y: (b.x - a.x) / len },
+            startWorld: pt,
           }
         }
       }
@@ -369,7 +446,22 @@ export default function DrawingCanvas({ className }: Props) {
     // Vertex drag
     if (isDraggingVertex.current && dragVertex && activeStory && activeStoryId) {
       const room = activeStory.rooms[dragVertex.roomIdx]
-      if (room) moveVertex(activeStoryId, room.id, dragVertex.vertIdx, pt)
+      if (room) {
+        didDrag.current = true
+        moveVertex(activeStoryId, room.id, dragVertex.vertIdx, pt)
+      }
+      return
+    }
+
+    // Edge drag — slide the wall along its normal, snapped to the grid
+    if (dragEdge.current && activeStoryId) {
+      const d = dragEdge.current
+      const rawDelta = (pt.x - d.startWorld.x) * d.normal.x + (pt.y - d.startWorld.y) * d.normal.y
+      const delta = Math.round(rawDelta / gridSizeM) * gridSizeM
+      const newA = { x: d.origA.x + d.normal.x * delta, y: d.origA.y + d.normal.y * delta }
+      const newB = { x: d.origB.x + d.normal.x * delta, y: d.origB.y + d.normal.y * delta }
+      didDrag.current = true
+      moveEdge(activeStoryId, d.roomId, d.edgeIdx, newA, newB)
       return
     }
 
@@ -386,6 +478,7 @@ export default function DrawingCanvas({ className }: Props) {
       isDraggingVertex.current = false
       setDragVertex(null)
     }
+    dragEdge.current = null
   }
 
   // ── Canvas drawing ─────────────────────────────────────────────────────────
@@ -678,6 +771,7 @@ export default function DrawingCanvas({ className }: Props) {
   // ── Click ─────────────────────────────────────────────────────────────────
   function handleClick(e: React.MouseEvent<HTMLCanvasElement>) {
     if (isPanning.current) return
+    if (didDrag.current) { didDrag.current = false; return }  // a drag just ended — not a click
     if (!activeStoryId) return
     const pt = getWorldPos(e)
     const { cx, cy } = getCanvasPos(e)
@@ -731,6 +825,16 @@ export default function DrawingCanvas({ className }: Props) {
 
   function handleRightClick(e: React.MouseEvent<HTMLCanvasElement>) {
     e.preventDefault()
+    if (drawingTool === 'select' && activeStory && activeStoryId) {
+      // Right-click a vertex to remove it (merges the two adjoining walls)
+      const pt = getWorldPos(e)
+      const hit = vertexNearPoint(pt)
+      if (hit) {
+        const room = activeStory.rooms[hit.roomIdx]
+        if (room && room.polygon.length > 3) deleteVertex(activeStoryId, room.id, hit.vertIdx)
+        return
+      }
+    }
     if (drawingTool === 'wall') {
       if (wallChain.length > 0) {
         // Undo last segment: go back to previous point, remove last placed wall
@@ -757,7 +861,20 @@ export default function DrawingCanvas({ className }: Props) {
     }
   }
 
-  function handleDoubleClick() {
+  function handleDoubleClick(e: React.MouseEvent<HTMLCanvasElement>) {
+    if (drawingTool === 'select' && activeStory && activeStoryId) {
+      // Double-click an edge to insert a corner there
+      const { cx, cy } = getCanvasPos(e)
+      const edgeHit = edgeNearPoint(cx, cy, 10)
+      if (edgeHit) {
+        const room = activeStory.rooms[edgeHit.roomIdx]
+        const a = room.polygon[edgeHit.edgeIdx]
+        const b = room.polygon[(edgeHit.edgeIdx + 1) % room.polygon.length]
+        const pos = projectOntoEdge(getWorldPos(e), a, b)
+        insertVertex(activeStoryId, room.id, edgeHit.edgeIdx, pos)
+        return
+      }
+    }
     if (drawingTool === 'wall' && pendingStart) {
       // Commit the current segment (if long enough) then end drawing
       commitWall()
@@ -828,6 +945,19 @@ export default function DrawingCanvas({ className }: Props) {
     return { len, area, bearingDeg, cardinal }
   })() : null
 
+  // Keep the length input in sync with the selected wall
+  useEffect(() => {
+    if (selectedWallMeasure) setLenEdit(selectedWallMeasure.len.toFixed(2))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedWallId, selectedWallMeasure?.len])
+
+  function applyLength() {
+    const v = parseFloat(lenEdit)
+    if (selectedWall && activeStoryId && v > 0.05 && Math.abs(v - (selectedWallMeasure?.len ?? 0)) > 0.001) {
+      setWallLength(activeStoryId, selectedWall.id, v, lenAnchor)
+    }
+  }
+
   return (
     <div className={`flex flex-col gap-2 ${className ?? ''}`} ref={containerRef}>
       {/* Status bar */}
@@ -846,7 +976,7 @@ export default function DrawingCanvas({ className }: Props) {
             ? `${wallChain.length + 1} pts — type length + direction • Enter to commit • Right-click to undo • Close Shape to finish`
             : 'Type length → pick direction or click canvas • Right-click to undo')}
           {drawingTool === 'polygon' && (polyPoints.length === 0 ? 'Click to place polygon points' : `${polyPoints.length} pts — click near start or double-click to close`)}
-          {drawingTool === 'select' && (selectedWallId ? 'Wall selected — click another wall or empty space to deselect' : 'Click a wall to measure it • Alt+drag or middle-mouse to pan')}
+          {drawingTool === 'select' && (selectedWallId ? 'Type a length to resize • drag a wall or corner to move it' : 'Click a wall to edit • drag walls/corners • double-click a wall to add a corner • right-click a corner to remove it')}
         </span>
       </div>
 
@@ -854,7 +984,30 @@ export default function DrawingCanvas({ className }: Props) {
       {selectedWallMeasure && selectedWall && (
         <div className="flex items-center gap-4 px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl text-xs shadow-sm">
           <span className="font-semibold text-amber-800">{selectedWall.name}</span>
-          <span className="text-amber-700">Length: <span className="font-mono font-bold">{selectedWallMeasure.len.toFixed(2)} m</span></span>
+          <span className="text-amber-700 flex items-center gap-1">
+            Length:
+            <input
+              type="text"
+              inputMode="decimal"
+              value={lenEdit}
+              onChange={(e) => setLenEdit(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); applyLength() } }}
+              onBlur={applyLength}
+              className="w-16 font-mono font-bold bg-white border border-amber-300 rounded px-1.5 py-0.5 text-amber-900 focus:outline-none focus:border-amber-500"
+            />
+            m
+            <span className="text-amber-500 ml-1">fix</span>
+            <button
+              onClick={() => setLenAnchor('start')}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${lenAnchor === 'start' ? 'bg-amber-600 text-white' : 'bg-white border border-amber-300 text-amber-600'}`}
+              title="Keep the start point fixed; the end point moves"
+            >start</button>
+            <button
+              onClick={() => setLenAnchor('end')}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${lenAnchor === 'end' ? 'bg-amber-600 text-white' : 'bg-white border border-amber-300 text-amber-600'}`}
+              title="Keep the end point fixed; the start point moves"
+            >end</button>
+          </span>
           <span className="text-amber-700">Area: <span className="font-mono font-bold">{selectedWallMeasure.area.toFixed(2)} m²</span></span>
           <span className="text-amber-700">Bearing: <span className="font-mono font-bold">{selectedWallMeasure.cardinal} ({selectedWallMeasure.bearingDeg.toFixed(0)}°)</span></span>
           <button
