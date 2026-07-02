@@ -8,7 +8,7 @@ import FaceEditorPanel from './FaceEditorPanel'
 
 export default function ModelerApp() {
   return (
-    <div className="flex flex-col h-full bg-gray-50 text-gray-800 overflow-hidden">
+    <div className="flex flex-col h-full text-gray-800 overflow-hidden">
       {/* Toolbar */}
       <div className="px-3 pt-2 shrink-0">
         <Toolbar />

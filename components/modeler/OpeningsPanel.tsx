@@ -74,7 +74,7 @@ export default function OpeningsPanel() {
                 {/* Add button */}
                 <button
                   onClick={() => addOpening(story.id, { ...DEFAULT_OPENING, wallId: wall.id })}
-                  className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 mt-0.5"
+                  className="flex items-center gap-1 text-xs text-emerald-700 hover:text-emerald-800 mt-0.5"
                 >
                   <PlusCircle size={11} /> Add opening
                 </button>
@@ -107,7 +107,7 @@ function OpeningEditor({
         <select
           value={opening.type}
           onChange={(e) => onUpdate({ type: e.target.value as OpeningType })}
-          className="flex-1 bg-white border border-gray-200 rounded px-1.5 py-0.5 text-gray-700 focus:outline-none focus:border-blue-400"
+          className="flex-1 bg-white border border-gray-200 rounded px-1.5 py-0.5 text-gray-700 focus:outline-none focus:border-emerald-500"
         >
           <option value="window">Window</option>
           <option value="door">Door</option>
@@ -122,7 +122,7 @@ function OpeningEditor({
           type="range" min={0} max={0.95} step={0.01}
           value={opening.uOffset}
           onChange={(e) => onUpdate({ uOffset: parseFloat(e.target.value) })}
-          className="flex-1 accent-blue-500"
+          className="flex-1 accent-emerald-600"
         />
         <span className="text-gray-500 w-10 text-right">{(opening.uOffset * wallLen).toFixed(1)}m</span>
       </div>
@@ -134,7 +134,7 @@ function OpeningEditor({
           type="range" min={0.3} max={Math.min(3, maxWidth)} step={0.05}
           value={opening.width}
           onChange={(e) => onUpdate({ width: parseFloat(e.target.value) })}
-          className="flex-1 accent-blue-500"
+          className="flex-1 accent-emerald-600"
         />
         <span className="text-gray-500 w-10 text-right">{opening.width.toFixed(2)}m</span>
       </div>
@@ -146,7 +146,7 @@ function OpeningEditor({
           type="range" min={0.3} max={Math.min(2.4, maxHeight)} step={0.05}
           value={opening.height}
           onChange={(e) => onUpdate({ height: parseFloat(e.target.value) })}
-          className="flex-1 accent-blue-500"
+          className="flex-1 accent-emerald-600"
         />
         <span className="text-gray-500 w-10 text-right">{opening.height.toFixed(2)}m</span>
       </div>
@@ -159,7 +159,7 @@ function OpeningEditor({
             type="range" min={0} max={Math.min(1.5, storyHeight - opening.height - 0.05)} step={0.05}
             value={opening.sillHeight}
             onChange={(e) => onUpdate({ sillHeight: parseFloat(e.target.value) })}
-            className="flex-1 accent-blue-500"
+            className="flex-1 accent-emerald-600"
           />
           <span className="text-gray-500 w-10 text-right">{opening.sillHeight.toFixed(2)}m</span>
         </div>
@@ -172,7 +172,7 @@ function OpeningEditor({
           type="number" step={0.1} min={0.5} max={5}
           value={opening.uValue}
           onChange={(e) => onUpdate({ uValue: parseFloat(e.target.value) || 1.4 })}
-          className="w-16 bg-white border border-gray-200 rounded px-1.5 py-0.5 text-gray-700 focus:outline-none focus:border-blue-400"
+          className="w-16 bg-white border border-gray-200 rounded px-1.5 py-0.5 text-gray-700 focus:outline-none focus:border-emerald-500"
         />
         <span className="text-gray-400">W/m²K</span>
       </div>

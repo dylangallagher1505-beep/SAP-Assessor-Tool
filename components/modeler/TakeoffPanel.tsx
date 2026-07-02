@@ -168,9 +168,9 @@ export default function TakeoffPanel() {
 
       {/* Tab switcher */}
       <div className="flex rounded-lg overflow-hidden border border-gray-200 text-xs">
-        <button onClick={() => setTab('summary')} className={`flex-1 py-1 font-medium ${tab === 'summary' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>Summary</button>
-        <button onClick={() => setTab('schedule')} className={`flex-1 py-1 font-medium ${tab === 'schedule' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>SAP Schedule</button>
-        <button onClick={() => setTab('uvalue')} className={`flex-1 py-1 font-medium flex items-center justify-center gap-1 ${tab === 'uvalue' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+        <button onClick={() => setTab('summary')} className={`flex-1 py-1 font-medium ${tab === 'summary' ? 'bg-emerald-700 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>Summary</button>
+        <button onClick={() => setTab('schedule')} className={`flex-1 py-1 font-medium ${tab === 'schedule' ? 'bg-emerald-700 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>SAP Schedule</button>
+        <button onClick={() => setTab('uvalue')} className={`flex-1 py-1 font-medium flex items-center justify-center gap-1 ${tab === 'uvalue' ? 'bg-emerald-700 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
           <Thermometer size={10} /> U-Value
         </button>
       </div>
@@ -179,9 +179,9 @@ export default function TakeoffPanel() {
         <>
           {/* Summary cards */}
           <div className="grid grid-cols-2 gap-2">
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-2">
-              <div className="text-xs text-blue-600">Total Floor Area</div>
-              <div className="text-lg font-bold text-blue-800">{fmt(totalFloor)} m²</div>
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2">
+              <div className="text-xs text-emerald-700">Total Floor Area</div>
+              <div className="text-lg font-bold text-emerald-900">{fmt(totalFloor)} m²</div>
             </div>
             <div className="bg-gray-50 border border-gray-200 rounded-lg p-2">
               <div className="text-xs text-gray-500">Gross Wall Area</div>

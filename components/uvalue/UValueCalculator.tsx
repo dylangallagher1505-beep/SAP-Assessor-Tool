@@ -151,7 +151,7 @@ export default function UValueCalculator() {
   const result = calcUValue(layers, heatFlow)
   const rsi = RSI[heatFlow], rse = RSE[heatFlow]
 
-  const uColor = result.u < 0.11 ? 'text-emerald-600' : result.u < 0.18 ? 'text-blue-600' : result.u < 0.30 ? 'text-amber-600' : 'text-red-600'
+  const uColor = result.u < 0.11 ? 'text-emerald-600' : result.u < 0.18 ? 'text-emerald-700' : result.u < 0.30 ? 'text-amber-600' : 'text-red-600'
   const uLabel = result.u < 0.11 ? 'Passivhaus grade' : result.u < 0.18 ? 'Part L compliant' : result.u < 0.30 ? 'Below Part L' : 'Poor'
 
   return (
@@ -176,14 +176,14 @@ export default function UValueCalculator() {
               onChange={e => setSpecText(e.target.value)}
               placeholder="e.g. EWT-02: Outside — 3mm Zinc, 22mm WBP Plywood, 50mm batten void, 2mm membrane, 12mm OSB, 150mm studs with 120mm Kooltherm (λ=0.019), 90mm Kooltherm continuous (λ=0.019), 11mm OSB, 22mm batten, VCL, 25mm plasterboard — Inside"
               rows={4}
-              className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs text-gray-700 resize-none focus:outline-none focus:border-blue-400 bg-gray-50"
+              className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs text-gray-700 resize-none focus:outline-none focus:border-emerald-500 bg-gray-50"
             />
 
             <div className="flex gap-2">
               <button
                 onClick={() => parse()}
                 disabled={parsing || !specText.trim()}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-700 text-white text-xs font-medium hover:bg-emerald-800 disabled:opacity-50"
               >
                 <FileText size={12} />
                 {parsing ? 'Reading…' : 'Parse text'}
@@ -213,7 +213,7 @@ export default function UValueCalculator() {
           <button
             key={hf}
             onClick={() => setHeatFlow(hf)}
-            className={`px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors ${heatFlow === hf ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+            className={`px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors ${heatFlow === hf ? 'bg-emerald-700 text-white border-emerald-700' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
           >
             {hf === 'horizontal' ? 'Wall' : hf === 'upward' ? 'Floor / Ground' : 'Roof / Ceiling'}
           </button>
@@ -255,21 +255,21 @@ export default function UValueCalculator() {
                 value={layer.thickness_mm ?? ''}
                 onChange={e => updateLayer(layer.id, { thickness_mm: e.target.value ? parseFloat(e.target.value) : null, resistance: null })}
                 placeholder="—"
-                className="w-full bg-white border border-gray-200 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:border-blue-400"
+                className="w-full bg-white border border-gray-200 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:border-emerald-500"
               />
               <input
                 type="number" step="0.001" min="0"
                 value={layer.lambda ?? ''}
                 onChange={e => updateLayer(layer.id, { lambda: e.target.value ? parseFloat(e.target.value) : null, resistance: null })}
                 placeholder="—"
-                className="w-full bg-white border border-gray-200 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:border-blue-400"
+                className="w-full bg-white border border-gray-200 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:border-emerald-500"
               />
               <input
                 type="number" step="0.01" min="0"
                 value={layer.resistance ?? (layer.lambda === null && layer.thickness_mm === null ? '' : '')}
                 placeholder={r !== null ? r.toFixed(3) : '—'}
                 onChange={e => updateLayer(layer.id, { resistance: e.target.value ? parseFloat(e.target.value) : null, lambda: null, thickness_mm: null })}
-                className="w-full bg-white border border-gray-200 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:border-blue-400"
+                className="w-full bg-white border border-gray-200 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:border-emerald-500"
               />
               <button onClick={() => moveLayer(layer.id, idx === 0 ? 1 : -1)} className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-gray-600 text-xs">
                 {idx === 0 ? '↓' : '↑'}
@@ -293,7 +293,7 @@ export default function UValueCalculator() {
         <div className="px-3 py-2 flex items-center gap-3">
           <button
             onClick={addLayer}
-            className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
+            className="flex items-center gap-1 text-xs text-emerald-700 hover:text-emerald-800"
           >
             <PlusCircle size={12} /> Add layer
           </button>

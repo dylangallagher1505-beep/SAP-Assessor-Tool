@@ -23,12 +23,12 @@ function ExtrudedRoom({ story, isActive }: { story: Story; isActive: boolean }) 
   return (
     <mesh geometry={geom} rotation={[-Math.PI / 2, 0, 0]} position={[0, story.startHeight, 0]}>
       <meshStandardMaterial
-        color={isActive ? '#2563eb' : '#64748b'}
+        color={isActive ? '#059669' : '#64748b'}
         opacity={isActive ? 0.3 : 0.15}
         transparent
         side={THREE.DoubleSide}
       />
-      <Edges color={isActive ? '#3b82f6' : '#94a3b8'} lineWidth={isActive ? 1.5 : 1} />
+      <Edges color={isActive ? '#10b981' : '#94a3b8'} lineWidth={isActive ? 1.5 : 1} />
     </mesh>
   )
 }
@@ -79,7 +79,7 @@ function WallFaceQuad({ wall, storyId, storyHeight, startHeight, selectedFace, o
       onClick={(e) => { e.stopPropagation(); onSelect(isSelected ? null : { type: 'wall', storyId, wallId: wall.id }) }}
     >
       <meshStandardMaterial
-        color={isSelected ? '#f59e0b' : '#3b82f6'}
+        color={isSelected ? '#f59e0b' : '#10b981'}
         opacity={isSelected ? 0.35 : 0.0}
         transparent
         side={THREE.DoubleSide}
@@ -107,7 +107,7 @@ function WallMesh({ wall, storyHeight, startHeight, isActive }: {
   return (
     <mesh geometry={geom}>
       <meshStandardMaterial
-        color={isActive ? '#3b82f6' : '#94a3b8'}
+        color={isActive ? '#10b981' : '#94a3b8'}
         opacity={isActive ? 0.8 : 0.4}
         transparent={!isActive}
         side={THREE.DoubleSide}

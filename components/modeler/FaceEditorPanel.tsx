@@ -316,7 +316,7 @@ export default function FaceEditorPanel() {
                 {faceData.openings.reduce((s, o) => s + o.w * o.h, 0).toFixed(2)} m²
               </span>
               <span className="text-gray-500">Net wall area</span>
-              <span className="font-mono font-semibold text-blue-700">
+              <span className="font-mono font-semibold text-emerald-800">
                 {Math.max(0, faceData.area - faceData.openings.reduce((s, o) => s + o.w * o.h, 0)).toFixed(2)} m²
               </span>
               <span className="text-gray-500">Orientation</span>
@@ -339,7 +339,7 @@ export default function FaceEditorPanel() {
               type="range" min={5} max={60} step={1}
               value={roofConfig.pitchDegrees}
               onChange={e => updateRoof({ pitchDegrees: parseInt(e.target.value) })}
-              className="w-full accent-blue-500"
+              className="w-full accent-emerald-600"
             />
             <p className="text-gray-400 text-[10px]">Adjusts pitch for all {roofConfig.type} roof faces</p>
           </div>

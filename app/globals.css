@@ -1,7 +1,62 @@
 @import "tailwindcss";
 
+:root {
+  --ink: #0c2a1f;          /* deep pine — headings, logo */
+  --accent: #059669;       /* emerald-600 — primary actions */
+  --accent-strong: #047857;
+  --surface: #fbfcfb;
+  --hairline: rgba(12, 42, 31, 0.08);
+}
+
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: #ffffff;
-  color: #14532d;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+  background:
+    radial-gradient(1200px 600px at 85% -10%, rgba(16, 185, 129, 0.05), transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, rgba(16, 185, 129, 0.04), transparent 55%),
+    #f4f7f5;
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Numbers line up in dimension labels and takeoff tables */
+input, td, .font-mono {
+  font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  background: rgba(16, 185, 129, 0.25);
+}
+
+/* Slim, unobtrusive scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(12, 42, 31, 0.18) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(12, 42, 31, 0.15);
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(12, 42, 31, 0.28);
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Soft card elevation used across panels */
+.shadow-sm {
+  box-shadow:
+    0 1px 2px rgba(12, 42, 31, 0.05),
+    0 2px 8px rgba(12, 42, 31, 0.04);
+}
+
+/* Focus rings in brand colour */
+input:focus-visible, button:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid rgba(5, 150, 105, 0.35);
+  outline-offset: 1px;
 }

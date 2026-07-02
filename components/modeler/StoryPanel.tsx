@@ -51,7 +51,7 @@ export default function StoryPanel() {
               }, 0)
             }
           }}
-          className="flex items-center gap-1 px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 text-xs"
+          className="flex items-center gap-1 px-2 py-1 rounded bg-emerald-700 text-white hover:bg-emerald-800 text-xs"
         >
           <PlusCircle size={13} /> Add Floor
         </button>
@@ -65,14 +65,14 @@ export default function StoryPanel() {
               key={story.id}
               className={`rounded-lg border p-2 cursor-pointer transition-colors ${
                 isActive
-                  ? 'border-blue-400 bg-blue-50'
+                  ? 'border-emerald-500 bg-emerald-50'
                   : 'border-gray-200 hover:border-gray-300 bg-white'
               }`}
               onClick={() => setActiveStory(story.id)}
             >
               <div className="flex items-center justify-between mb-2">
                 <input
-                  className={`bg-transparent font-medium w-32 focus:outline-none focus:border-b text-xs ${isActive ? 'text-blue-700 border-blue-300' : 'text-gray-700 border-gray-300'}`}
+                  className={`bg-transparent font-medium w-32 focus:outline-none focus:border-b text-xs ${isActive ? 'text-emerald-800 border-emerald-300' : 'text-gray-700 border-gray-300'}`}
                   value={story.name}
                   onChange={(e) => updateStory(story.id, { name: e.target.value })}
                   onClick={(e) => e.stopPropagation()}
@@ -97,7 +97,7 @@ export default function StoryPanel() {
                   value={story.startHeight}
                   onChange={(e) => updateStory(story.id, { startHeight: parseFloat(e.target.value) || 0 })}
                   onClick={(e) => e.stopPropagation()}
-                  className="bg-white border border-gray-200 rounded px-2 py-0.5 text-gray-700 w-full focus:outline-none focus:border-blue-400"
+                  className="bg-white border border-gray-200 rounded px-2 py-0.5 text-gray-700 w-full focus:outline-none focus:border-emerald-500"
                 />
                 <input
                   type="number"
@@ -106,7 +106,7 @@ export default function StoryPanel() {
                   value={story.storyHeight}
                   onChange={(e) => updateStory(story.id, { storyHeight: parseFloat(e.target.value) || 2.5 })}
                   onClick={(e) => e.stopPropagation()}
-                  className="bg-white border border-gray-200 rounded px-2 py-0.5 text-gray-700 w-full focus:outline-none focus:border-blue-400"
+                  className="bg-white border border-gray-200 rounded px-2 py-0.5 text-gray-700 w-full focus:outline-none focus:border-emerald-500"
                 />
               </div>
 
@@ -122,7 +122,7 @@ export default function StoryPanel() {
                   <button
                     title="Copy footprint to next storey"
                     onClick={(e) => { e.stopPropagation(); copyFootprintTo(story.id, stories[i + 1].id) }}
-                    className="flex items-center gap-0.5 text-blue-500 hover:text-blue-700"
+                    className="flex items-center gap-0.5 text-emerald-600 hover:text-emerald-800"
                   >
                     <Copy size={10} /> copy up
                   </button>
@@ -151,7 +151,7 @@ export default function StoryPanel() {
                 const isSelected = wall.id === selectedWallId
                 const wallType = wall.wallType ?? 'external'
                 const typeColors: Record<string, string> = {
-                  external: 'bg-blue-50 text-blue-700 border-blue-200',
+                  external: 'bg-emerald-50 text-emerald-800 border-emerald-200',
                   party:    'bg-orange-50 text-orange-700 border-orange-200',
                   internal: 'bg-gray-100 text-gray-500 border-gray-200',
                 }
@@ -214,7 +214,7 @@ export default function StoryPanel() {
               {history.length > 0 && (
                 <button
                   onClick={() => undo()}
-                  className="flex items-center gap-1 mt-1 text-xs text-blue-500 hover:text-blue-700 px-2"
+                  className="flex items-center gap-1 mt-1 text-xs text-emerald-600 hover:text-emerald-800 px-2"
                 >
                   ↩ Undo last change
                 </button>
@@ -305,7 +305,7 @@ export default function StoryPanel() {
                 <select
                   value={roofConfig.type}
                   onChange={(e) => updateRoof({ type: e.target.value as any })}
-                  className="block mt-0.5 w-full bg-white border border-gray-200 rounded px-2 py-1 text-gray-700 focus:outline-none focus:border-blue-400"
+                  className="block mt-0.5 w-full bg-white border border-gray-200 rounded px-2 py-1 text-gray-700 focus:outline-none focus:border-emerald-500"
                 >
                   <option value="flat">Flat</option>
                   <option value="shed">Shed (Mono-pitch)</option>
@@ -324,7 +324,7 @@ export default function StoryPanel() {
                     step={1}
                     value={roofConfig.pitchDegrees}
                     onChange={(e) => updateRoof({ pitchDegrees: parseInt(e.target.value) })}
-                    className="w-full mt-0.5 accent-blue-500"
+                    className="w-full mt-0.5 accent-emerald-600"
                   />
                 </div>
               )}

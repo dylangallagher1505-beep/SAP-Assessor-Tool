@@ -68,7 +68,7 @@ export default function WallFaceEditor({ wall, storyId, storyHeight }: Props) {
     const tlY = toCanvasY(hl)
     const trY = toCanvasY(hr)
     ctx.fillStyle = 'rgba(59,130,246,0.10)'
-    ctx.strokeStyle = '#2563eb'
+    ctx.strokeStyle = '#059669'
     ctx.lineWidth = 2
     ctx.beginPath()
     ctx.moveTo(leftX, baseY)
@@ -91,11 +91,11 @@ export default function WallFaceEditor({ wall, storyId, storyHeight }: Props) {
 
     // Drag handles
     for (const [cx2, cy2, label] of [[leftX, tlY, `${hl.toFixed(2)}m`], [rightX, trY, `${hr.toFixed(2)}m`]] as [number, number, string][]) {
-      ctx.fillStyle = '#2563eb'
+      ctx.fillStyle = '#059669'
       ctx.strokeStyle = '#fff'
       ctx.lineWidth = 2
       ctx.beginPath(); ctx.arc(cx2, cy2, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
-      ctx.fillStyle = '#1e40af'
+      ctx.fillStyle = '#065f46'
       ctx.font = 'bold 10px monospace'
       ctx.textAlign = 'center'
       ctx.fillText(label, cx2, cy2 - 11)
@@ -111,7 +111,7 @@ export default function WallFaceEditor({ wall, storyId, storyHeight }: Props) {
 
     // Trapezoidal area
     const area = ((hl + hr) / 2) * wallLen
-    ctx.fillStyle = '#1d4ed8'
+    ctx.fillStyle = '#047857'
     ctx.font = 'bold 10px sans-serif'
     ctx.textAlign = 'center'
     ctx.fillText(`Face area: ${area.toFixed(2)} m²`, W / 2, PAD - 10)
@@ -157,7 +157,7 @@ export default function WallFaceEditor({ wall, storyId, storyHeight }: Props) {
         ref={canvasRef}
         width={W}
         height={H}
-        className="w-full rounded-lg border border-blue-200 cursor-ns-resize"
+        className="w-full rounded-lg border border-emerald-200 cursor-ns-resize"
         style={{ maxHeight: 160 }}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
@@ -170,7 +170,7 @@ export default function WallFaceEditor({ wall, storyId, storyHeight }: Props) {
           type="number" step={0.05} min={0.1} max={20}
           value={hl}
           onChange={e => updateWall(storyId, wall.id, { heightLeft: parseFloat(e.target.value) || storyHeight })}
-          className="w-20 border border-gray-200 rounded px-2 py-0.5 text-gray-700 bg-white focus:outline-none focus:border-blue-400"
+          className="w-20 border border-gray-200 rounded px-2 py-0.5 text-gray-700 bg-white focus:outline-none focus:border-emerald-500"
         />
         <span className="text-gray-400">m</span>
         <label className="text-gray-500 shrink-0 ml-2">Right&nbsp;ht</label>
@@ -178,12 +178,12 @@ export default function WallFaceEditor({ wall, storyId, storyHeight }: Props) {
           type="number" step={0.05} min={0.1} max={20}
           value={hr}
           onChange={e => updateWall(storyId, wall.id, { heightRight: parseFloat(e.target.value) || storyHeight })}
-          className="w-20 border border-gray-200 rounded px-2 py-0.5 text-gray-700 bg-white focus:outline-none focus:border-blue-400"
+          className="w-20 border border-gray-200 rounded px-2 py-0.5 text-gray-700 bg-white focus:outline-none focus:border-emerald-500"
         />
         <span className="text-gray-400">m</span>
         <button
           onClick={() => updateWall(storyId, wall.id, { heightLeft: storyHeight, heightRight: storyHeight })}
-          className="ml-auto text-xs text-gray-400 hover:text-blue-600"
+          className="ml-auto text-xs text-gray-400 hover:text-emerald-700"
         >↺ Reset</button>
       </div>
     </div>

@@ -489,13 +489,13 @@ export default function DrawingCanvas({ className }: Props) {
     ctx.clearRect(0, 0, CANVAS_PX, CANVAS_PX)
 
     // Light canvas background
-    ctx.fillStyle = '#f8fafc'
+    ctx.fillStyle = '#fbfdfc'
     ctx.fillRect(0, 0, CANVAS_PX, CANVAS_PX)
 
     // Minor grid
     const step = gridSizeM * zoom
     if (step > 4) {
-      ctx.strokeStyle = '#e2e8f0'
+      ctx.strokeStyle = '#e4ede8'
       ctx.lineWidth = 0.5
       const startX = ((-pan.x % gridSizeM) + gridSizeM) % gridSizeM * zoom
       const startY = CANVAS_PX - (((-pan.y % gridSizeM) + gridSizeM) % gridSizeM * zoom)
@@ -509,7 +509,7 @@ export default function DrawingCanvas({ className }: Props) {
 
     // Major grid (1m)
     const majorStep = zoom
-    ctx.strokeStyle = '#cbd5e1'
+    ctx.strokeStyle = '#d3e0d9'
     ctx.lineWidth = 1
     const mStartX = ((-pan.x % 1) + 1) % 1 * zoom
     const mStartY = CANVAS_PX - (((-pan.y % 1) + 1) % 1 * zoom)
@@ -522,7 +522,7 @@ export default function DrawingCanvas({ className }: Props) {
 
     // Origin axes
     const originCanvas = worldToCanvas({ x: 0, y: 0 }, pan, zoom)
-    ctx.strokeStyle = 'rgba(59,130,246,0.3)'
+    ctx.strokeStyle = 'rgba(16,185,129,0.35)'
     ctx.lineWidth = 1
     ctx.beginPath(); ctx.moveTo(originCanvas.x, 0); ctx.lineTo(originCanvas.x, CANVAS_PX); ctx.stroke()
     ctx.beginPath(); ctx.moveTo(0, originCanvas.y); ctx.lineTo(CANVAS_PX, originCanvas.y); ctx.stroke()
@@ -537,12 +537,12 @@ export default function DrawingCanvas({ className }: Props) {
         const b = worldToCanvas(w.end, pan, zoom)
 
         // Wall stroke
-        ctx.strokeStyle = isSelected ? '#f59e0b' : isHovered ? '#fb923c' : (isActive ? '#1e40af' : '#94a3b8')
+        ctx.strokeStyle = isSelected ? '#f59e0b' : isHovered ? '#fb923c' : (isActive ? '#065f46' : '#94a3b8')
         ctx.lineWidth = isSelected ? 3.5 : isHovered ? 3 : (isActive ? 2.5 : 1)
         ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke()
 
         if (isActive) {
-          ctx.fillStyle = isSelected ? '#f59e0b' : '#3b82f6'
+          ctx.fillStyle = isSelected ? '#f59e0b' : '#10b981'
           ctx.beginPath(); ctx.arc(a.x, a.y, 3, 0, Math.PI * 2); ctx.fill()
           ctx.beginPath(); ctx.arc(b.x, b.y, 3, 0, Math.PI * 2); ctx.fill()
 
@@ -561,7 +561,7 @@ export default function DrawingCanvas({ className }: Props) {
             ctx.fillText(w.name, lx, ly - 7)
             // Length (below name)
             ctx.font = `${Math.min(10, zoom * 0.35 + 5)}px monospace`
-            ctx.fillStyle = isSelected ? '#b45309' : 'rgba(30,64,175,0.7)'
+            ctx.fillStyle = isSelected ? '#b45309' : 'rgba(6,95,70,0.75)'
             ctx.fillText(`${len.toFixed(2)}m`, lx, ly + 4)
             ctx.textAlign = 'left'
           }
@@ -591,8 +591,8 @@ export default function DrawingCanvas({ className }: Props) {
 
       if (roomPolygons.length > 0) {
         for (const { polygon, label } of roomPolygons) {
-          ctx.strokeStyle = isActive ? '#3b82f6' : '#93c5fd'
-          ctx.fillStyle = isActive ? 'rgba(59,130,246,0.06)' : 'rgba(59,130,246,0.03)'
+          ctx.strokeStyle = isActive ? '#10b981' : '#6ee7b7'
+          ctx.fillStyle = isActive ? 'rgba(16,185,129,0.07)' : 'rgba(16,185,129,0.04)'
           ctx.lineWidth = isActive ? 1.5 : 1
           ctx.setLineDash(isActive ? [] : [4, 4])
           ctx.beginPath()
@@ -610,7 +610,7 @@ export default function DrawingCanvas({ className }: Props) {
           const cc = worldToCanvas({ x: cxW, y: cyW }, pan, zoom)
           ctx.font = `bold ${Math.min(14, zoom * 0.5)}px sans-serif`
           ctx.textAlign = 'center'
-          ctx.fillStyle = isActive ? '#1d4ed8' : '#93c5fd'
+          ctx.fillStyle = isActive ? '#047857' : '#6ee7b7'
           ctx.fillText(label, cc.x, cc.y)
           ctx.textAlign = 'left'
 
@@ -618,7 +618,7 @@ export default function DrawingCanvas({ className }: Props) {
           if (drawingTool === 'select' && isActive) {
             for (const v of polygon) {
               const vp = worldToCanvas(v, pan, zoom)
-              ctx.fillStyle = '#2563eb'
+              ctx.fillStyle = '#059669'
               ctx.strokeStyle = '#fff'
               ctx.lineWidth = 1.5
               ctx.beginPath(); ctx.arc(vp.x, vp.y, 5, 0, Math.PI * 2)
@@ -627,7 +627,7 @@ export default function DrawingCanvas({ className }: Props) {
           }
         }
       } else if (isActive && story.footprintPolygon.length >= 2) {
-        ctx.strokeStyle = '#3b82f6'
+        ctx.strokeStyle = '#10b981'
         ctx.lineWidth = 1.5
         ctx.setLineDash([4, 4])
         ctx.beginPath()
@@ -719,7 +719,7 @@ export default function DrawingCanvas({ className }: Props) {
       const nx = -wdy / (wLen || 1), ny = wdx / (wLen || 1)
       ctx.textAlign = 'center'
       const liveWallName = wallName.trim() || nextWallName()
-      ctx.fillStyle = '#1e40af'
+      ctx.fillStyle = '#065f46'
       ctx.font = 'bold 11px sans-serif'
       ctx.fillText(liveWallName, mid.x + nx * 14, mid.y + ny * 14 - 7)
       ctx.fillStyle = '#92400e'
@@ -728,7 +728,7 @@ export default function DrawingCanvas({ className }: Props) {
       ctx.textAlign = 'left'
 
       // Start dot
-      ctx.fillStyle = '#2563eb'
+      ctx.fillStyle = '#059669'
       ctx.beginPath(); ctx.arc(a.x, a.y, 5, 0, Math.PI * 2); ctx.fill()
 
       // Close-shape snap ring: highlight first point when mouse is near it
@@ -962,7 +962,7 @@ export default function DrawingCanvas({ className }: Props) {
     <div className={`flex flex-col gap-2 ${className ?? ''}`} ref={containerRef}>
       {/* Status bar */}
       <div className="flex items-center gap-2 text-xs text-gray-500">
-        <span>Active: <span className="text-blue-600 font-medium">{activeStory?.name ?? '—'}</span></span>
+        <span>Active: <span className="text-emerald-700 font-medium">{activeStory?.name ?? '—'}</span></span>
         {activeStory && (activeStory.rooms.length > 0 || activeStory.footprintPolygon.length >= 3) && !pendingStart && (
           <button
             onClick={() => { if (activeStoryId) clearWalls(activeStoryId) }}
@@ -1023,8 +1023,8 @@ export default function DrawingCanvas({ className }: Props) {
 
       {/* 2D wall face editor — shown when a wall is selected */}
       {selectedWall && activeStory && activeStoryId && (
-        <div className="px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl shadow-sm">
-          <div className="text-xs font-semibold text-blue-700 mb-2">Wall Face — {selectedWall.name}</div>
+        <div className="px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl shadow-sm">
+          <div className="text-xs font-semibold text-emerald-800 mb-2">Wall Face — {selectedWall.name}</div>
           <WallFaceEditor
             wall={selectedWall}
             storyId={activeStoryId}
@@ -1045,7 +1045,7 @@ export default function DrawingCanvas({ className }: Props) {
             value={wallName}
             onChange={(e) => setWallName(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Tab') { e.preventDefault(); lengthInputRef.current?.focus() } }}
-            className="w-24 bg-white border border-gray-200 rounded-lg px-2 py-1 text-gray-800 text-sm focus:outline-none focus:border-blue-400"
+            className="w-24 bg-white border border-gray-200 rounded-lg px-2 py-1 text-gray-800 text-sm focus:outline-none focus:border-emerald-500"
           />
           <div className="h-4 w-px bg-gray-200" />
           {/* Step 1 */}
@@ -1058,7 +1058,7 @@ export default function DrawingCanvas({ className }: Props) {
             value={kbLength}
             onChange={(e) => setKbLength(e.target.value)}
             onKeyDown={handleLengthKeyDown}
-            className="w-24 bg-white border border-gray-200 rounded-lg px-2 py-1 text-gray-800 text-sm focus:outline-none focus:border-blue-400"
+            className="w-24 bg-white border border-gray-200 rounded-lg px-2 py-1 text-gray-800 text-sm focus:outline-none focus:border-emerald-500"
             autoFocus
           />
 
