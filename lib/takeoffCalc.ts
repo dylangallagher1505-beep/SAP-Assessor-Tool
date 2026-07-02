@@ -1,4 +1,5 @@
 import type { Story, Wall, Point2D, RoofConfig, StoryTakeoff, RoofTakeoff } from './modelerStore'
+import { buildRoofFaces } from './roofGeometry'
 
 // ─── Geometry helpers ────────────────────────────────────────────────────────
 
@@ -60,68 +61,13 @@ export function calcStoryTakeoff(story: Story): StoryTakeoff {
 // ─── Roof takeoff ─────────────────────────────────────────────────────────────
 
 export function calcRoofTakeoff(topStory: Story, roof: RoofConfig): RoofTakeoff {
-  const bbox = topStory.footprintPolygon.length >= 3
-    ? polygonBBox(topStory.footprintPolygon)
-    : { w: 0, d: 0, minX: 0, maxX: 0, minY: 0, maxY: 0 }
+  const pts = topStory.footprintPolygon
+  if (pts.length < 3) return { type: roof.type, planes: [], totalArea: 0, gableWallArea: 0 }
 
-  const { w, d } = bbox
-  const pitchRad = (roof.pitchDegrees * Math.PI) / 180
-  const slopeFactor = 1 / Math.cos(pitchRad) // horizontal → sloped length multiplier
-
-  switch (roof.type) {
-    case 'flat': {
-      const area = topStory.footprintPolygon.length >= 3
-        ? polygonArea(topStory.footprintPolygon)
-        : w * d
-      return {
-        type: 'flat',
-        planes: [{ label: 'Flat Roof', area }],
-        totalArea: area,
-      }
-    }
-    case 'shed': {
-      const area = w * d * slopeFactor
-      return {
-        type: 'shed',
-        planes: [{ label: 'Shed Plane', area }],
-        totalArea: area,
-      }
-    }
-    case 'gable': {
-      // Two planes, each covers half the depth
-      const halfD = d / 2
-      const rakeLength = Math.sqrt((halfD) ** 2 + (halfD * Math.tan(pitchRad)) ** 2)
-      const area = w * rakeLength
-      return {
-        type: 'gable',
-        planes: [
-          { label: 'Gable Plane A', area },
-          { label: 'Gable Plane B', area },
-        ],
-        totalArea: area * 2,
-      }
-    }
-    case 'hip': {
-      // Two trapezoidal N-S slopes + two triangular E-W ends
-      // rise is based on half the shorter span
-      const rise = (d / 2) * Math.tan(pitchRad)
-      // slant height perpendicular to the ridge (same for sides and ends on a symmetric hip)
-      const sideSlant = Math.sqrt((d / 2) ** 2 + rise ** 2)
-      // Each trapezoidal side: bases are w (eave) and max(0, w-d) (ridge); height is sideSlant
-      const ridgeLen = Math.max(0, w - d)
-      const sideArea = ((w + ridgeLen) / 2) * sideSlant
-      // Each triangular end: base = d, perpendicular slant height = sideSlant
-      const endArea = (d / 2) * sideSlant  // one triangle = 0.5 * d * sideSlant
-      return {
-        type: 'hip',
-        planes: [
-          { label: 'Hip Side A', area: sideArea },
-          { label: 'Hip Side B', area: sideArea },
-          { label: 'Hip End A', area: endArea },
-          { label: 'Hip End B', area: endArea },
-        ],
-        totalArea: sideArea * 2 + endArea * 2,
-      }
-    }
-  }
+  // True per-face areas from the tent construction over the actual footprint
+  const faces = buildRoofFaces(pts, 0, roof)
+  const planes = faces.map((f) => ({ label: f.label, area: f.area, isWall: f.isGableEnd }))
+  const totalArea = faces.filter((f) => !f.isGableEnd).reduce((s, f) => s + f.area, 0)
+  const gableWallArea = faces.filter((f) => f.isGableEnd).reduce((s, f) => s + f.area, 0)
+  return { type: roof.type, planes, totalArea, gableWallArea }
 }

@@ -45,6 +45,10 @@ export interface RoofConfig {
   type: RoofType
   pitchDegrees: number
   ridgeOffsetFraction: number
+  /** Plan-view ridge line, editable in the 2D canvas. null/undefined = auto from type. */
+  ridge?: { start: Point2D; end: Point2D } | null
+  /** Ridge height in metres above the eaves. undefined = derived from pitchDegrees. */
+  ridgeHeight?: number | null
 }
 
 // ─── Room (zone within a story) ──────────────────────────────────────────────
@@ -79,8 +83,9 @@ export interface StoryTakeoff {
 
 export interface RoofTakeoff {
   type: RoofType
-  planes: { label: string; area: number }[]
-  totalArea: number
+  planes: { label: string; area: number; isWall?: boolean }[]
+  totalArea: number   // sloped roof surface only — gable ends excluded (they are wall)
+  gableWallArea: number
 }
 
 // ─── Store shape ────────────────────────────────────────────────────────────

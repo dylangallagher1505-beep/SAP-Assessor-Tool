@@ -3,6 +3,7 @@ import { useMemo } from 'react'
 import { X, Move } from 'lucide-react'
 import { useModelerStore } from '@/lib/modelerStore'
 import type { Point2D, RoofConfig } from '@/lib/modelerStore'
+import { buildRoofFaces, RoofFace } from '@/lib/roofGeometry'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -64,55 +65,6 @@ function unrollFace(verts: [number, number, number][]): { u: number; v: number }
 
 // ─── Roof face info ───────────────────────────────────────────────────────────
 
-type RoofFace = { verts: [number, number, number][]; label: string }
-
-function buildRoofFaces(pts: Point2D[], eaveY: number, cfg: RoofConfig): RoofFace[] {
-  if (pts.length < 3) return []
-  const xs = pts.map(p => p.x), ys = pts.map(p => p.y)
-  const minX = Math.min(...xs), maxX = Math.max(...xs)
-  const minY = Math.min(...ys), maxY = Math.max(...ys)
-  const w = maxX - minX, d = maxY - minY
-  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2
-  const pitchRad = (cfg.pitchDegrees * Math.PI) / 180
-  const rise = (Math.min(w, d) / 2) * Math.tan(pitchRad)
-
-  if (cfg.type === 'flat') {
-    return [{ verts: pts.map(p => [p.x, eaveY + 0.05, p.y]), label: 'Flat Roof' }]
-  }
-  if (cfg.type === 'shed') {
-    const highY = eaveY + d * Math.tan(pitchRad)
-    return [{ label: 'Shed', verts: [[minX, eaveY, minY], [maxX, eaveY, minY], [maxX, highY, maxY], [minX, highY, maxY]] }]
-  }
-  if (cfg.type === 'gable') {
-    const ridgeY = eaveY + rise
-    return [
-      { label: 'Front Slope', verts: [[minX, eaveY, minY], [maxX, eaveY, minY], [maxX, ridgeY, cy], [minX, ridgeY, cy]] },
-      { label: 'Rear Slope', verts: [[maxX, eaveY, maxY], [minX, eaveY, maxY], [minX, ridgeY, cy], [maxX, ridgeY, cy]] },
-      { label: 'Gable West', verts: [[minX, eaveY, minY], [minX, ridgeY, cy], [minX, eaveY, maxY]] },
-      { label: 'Gable East', verts: [[maxX, eaveY, maxY], [maxX, ridgeY, cy], [maxX, eaveY, minY]] },
-    ]
-  }
-  if (cfg.type === 'hip') {
-    const ridgeY = eaveY + rise
-    const hipOffsetX = d / 2
-    const ridgeMinX = minX + hipOffsetX, ridgeMaxX = maxX - hipOffsetX
-    if (ridgeMinX >= ridgeMaxX) {
-      return [
-        { label: 'Hip South', verts: [[minX, eaveY, minY], [maxX, eaveY, minY], [cx, ridgeY, cy]] },
-        { label: 'Hip North', verts: [[maxX, eaveY, maxY], [minX, eaveY, maxY], [cx, ridgeY, cy]] },
-        { label: 'Hip East', verts: [[maxX, eaveY, minY], [maxX, eaveY, maxY], [cx, ridgeY, cy]] },
-        { label: 'Hip West', verts: [[minX, eaveY, maxY], [minX, eaveY, minY], [cx, ridgeY, cy]] },
-      ]
-    }
-    return [
-      { label: 'Hip Front', verts: [[minX, eaveY, minY], [maxX, eaveY, minY], [ridgeMaxX, ridgeY, cy], [ridgeMinX, ridgeY, cy]] },
-      { label: 'Hip Rear', verts: [[maxX, eaveY, maxY], [minX, eaveY, maxY], [ridgeMinX, ridgeY, cy], [ridgeMaxX, ridgeY, cy]] },
-      { label: 'Hip End W', verts: [[minX, eaveY, maxY], [minX, eaveY, minY], [ridgeMinX, ridgeY, cy]] },
-      { label: 'Hip End E', verts: [[maxX, eaveY, minY], [maxX, eaveY, maxY], [ridgeMaxX, ridgeY, cy]] },
-    ]
-  }
-  return []
-}
 
 // ─── SVG Wall Face View ───────────────────────────────────────────────────────
 

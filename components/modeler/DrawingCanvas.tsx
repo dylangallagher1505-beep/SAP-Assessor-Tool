@@ -1,6 +1,7 @@
 'use client'
 import { useRef, useEffect, useCallback, useState } from 'react'
 import { useModelerStore, Point2D, Wall } from '@/lib/modelerStore'
+import { effectiveRidge, defaultRidge } from '@/lib/roofGeometry'
 import { ZoomIn, ZoomOut, Maximize2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Trash2 } from 'lucide-react'
 import WallFaceEditor from './WallFaceEditor'
 
@@ -68,9 +69,15 @@ export default function DrawingCanvas({ className }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const lengthInputRef = useRef<HTMLInputElement>(null)
 
-  const { stories, activeStoryId, drawingTool, gridSizeM, addWall, clearWalls, setFootprint, closePolygon, registerRoom, selectedWallId, setSelectedWallId, removeWall, moveVertex, moveEdge, insertVertex, deleteVertex, setWallLength, pushHistory, undo, redo } =
+  const { stories, activeStoryId, drawingTool, gridSizeM, addWall, clearWalls, setFootprint, closePolygon, registerRoom, selectedWallId, setSelectedWallId, removeWall, moveVertex, moveEdge, insertVertex, deleteVertex, setWallLength, pushHistory, undo, redo, roofConfig, updateRoof, showRoof } =
     useModelerStore()
   const activeStory = stories.find((s) => s.id === activeStoryId)
+
+  // Ridge is editable on the top storey's plan when a pitched roof is shown
+  const isTopStory = activeStory ? stories.indexOf(activeStory) === stories.length - 1 : false
+  const roofRidge = (isTopStory && showRoof && activeStory && activeStory.footprintPolygon.length >= 3)
+    ? effectiveRidge(activeStory.footprintPolygon, roofConfig)
+    : null
 
 
   // ── View state ──────────────────────────────────────────────────────────────
@@ -118,6 +125,9 @@ export default function DrawingCanvas({ className }: Props) {
     startWorld: Point2D
   } | null>(null)
   const didDrag = useRef(false)
+
+  // Ridge endpoint drag (select tool, top storey)
+  const dragRidgeEnd = useRef<'start' | 'end' | null>(null)
 
   // Exact-length editing of the selected wall
   const [lenEdit, setLenEdit] = useState('')
@@ -400,6 +410,20 @@ export default function DrawingCanvas({ className }: Props) {
       const pt = getWorldPos(e)
       didDrag.current = false
 
+      // Ridge endpoints take priority — they sit inside the plan
+      if (roofRidge) {
+        const { cx, cy } = getCanvasPos(e)
+        for (const endName of ['start', 'end'] as const) {
+          const rp = worldToCanvas(roofRidge[endName], pan, zoom)
+          if (Math.sqrt((cx - rp.x) ** 2 + (cy - rp.y) ** 2) < 12) {
+            pushHistory()
+            if (!roofConfig.ridge) updateRoof({ ridge: roofRidge }) // materialize auto ridge
+            dragRidgeEnd.current = endName
+            return
+          }
+        }
+      }
+
       const hit = vertexNearPoint(pt)
       if (hit) {
         pushHistory()
@@ -443,6 +467,14 @@ export default function DrawingCanvas({ className }: Props) {
     const pt = getWorldPos(e)
     setMouseWorld(pt)
 
+    // Ridge endpoint drag
+    if (dragRidgeEnd.current && roofRidge) {
+      didDrag.current = true
+      const current = roofConfig.ridge ?? roofRidge
+      updateRoof({ ridge: { ...current, [dragRidgeEnd.current]: pt } })
+      return
+    }
+
     // Vertex drag
     if (isDraggingVertex.current && dragVertex && activeStory && activeStoryId) {
       const room = activeStory.rooms[dragVertex.roomIdx]
@@ -479,6 +511,7 @@ export default function DrawingCanvas({ className }: Props) {
       setDragVertex(null)
     }
     dragEdge.current = null
+    dragRidgeEnd.current = null
   }
 
   // ── Canvas drawing ─────────────────────────────────────────────────────────
@@ -641,6 +674,55 @@ export default function DrawingCanvas({ className }: Props) {
       }
     }
 
+    // Roof ridge overlay — top storey plan, pitched roof
+    if (roofRidge && activeStory) {
+      const closest = (p: Point2D, a: Point2D, b: Point2D): Point2D => {
+        const dx = b.x - a.x, dy = b.y - a.y
+        const lenSq = dx * dx + dy * dy
+        if (lenSq < 1e-9) return a
+        const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq))
+        return { x: a.x + t * dx, y: a.y + t * dy }
+      }
+      // Plane-division lines from footprint corners to the ridge
+      ctx.strokeStyle = 'rgba(225,29,72,0.25)'
+      ctx.lineWidth = 1
+      ctx.setLineDash([3, 3])
+      for (const v of activeStory.footprintPolygon) {
+        const proj = closest(v, roofRidge.start, roofRidge.end)
+        const a = worldToCanvas(v, pan, zoom)
+        const b = worldToCanvas(proj, pan, zoom)
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke()
+      }
+      ctx.setLineDash([])
+
+      // Ridge line
+      const rs = worldToCanvas(roofRidge.start, pan, zoom)
+      const re = worldToCanvas(roofRidge.end, pan, zoom)
+      ctx.strokeStyle = '#e11d48'
+      ctx.lineWidth = 2.5
+      ctx.setLineDash([8, 4])
+      ctx.beginPath(); ctx.moveTo(rs.x, rs.y); ctx.lineTo(re.x, re.y); ctx.stroke()
+      ctx.setLineDash([])
+
+      // Endpoint handles (diamonds) — draggable in select mode
+      for (const p of [rs, re]) {
+        ctx.fillStyle = drawingTool === 'select' ? '#e11d48' : 'rgba(225,29,72,0.5)'
+        ctx.strokeStyle = '#fff'
+        ctx.lineWidth = 1.5
+        ctx.beginPath()
+        ctx.moveTo(p.x, p.y - 6); ctx.lineTo(p.x + 6, p.y); ctx.lineTo(p.x, p.y + 6); ctx.lineTo(p.x - 6, p.y)
+        ctx.closePath(); ctx.fill(); ctx.stroke()
+      }
+
+      // Label
+      const mid = { x: (rs.x + re.x) / 2, y: (rs.y + re.y) / 2 }
+      ctx.font = 'bold 10px sans-serif'
+      ctx.textAlign = 'center'
+      ctx.fillStyle = '#be123c'
+      ctx.fillText('ridge', mid.x, mid.y - 8)
+      ctx.textAlign = 'left'
+    }
+
     // Polygon in-progress
     if (drawingTool === 'polygon' && polyPoints.length > 0) {
       ctx.strokeStyle = '#f59e0b'
@@ -766,7 +848,7 @@ export default function DrawingCanvas({ className }: Props) {
     ctx.fillStyle = 'rgba(71,85,105,0.6)'
     ctx.font = '10px monospace'
     ctx.fillText(`(${mouseWorld.x.toFixed(2)}, ${mouseWorld.y.toFixed(2)})  ×${(zoom / BASE_ZOOM).toFixed(1)}`, 6, CANVAS_PX - 6)
-  }, [stories, activeStoryId, pendingStart, mouseWorld, polyPoints, pan, zoom, gridSizeM, drawingTool, previewEnd, kbDir, BASE_ZOOM, wallChain, selectedWallId, hoveredWallId, snappedToVertex])
+  }, [stories, activeStoryId, pendingStart, mouseWorld, polyPoints, pan, zoom, gridSizeM, drawingTool, previewEnd, kbDir, BASE_ZOOM, wallChain, selectedWallId, hoveredWallId, snappedToVertex, roofRidge, activeStory])
 
   // ── Click ─────────────────────────────────────────────────────────────────
   function handleClick(e: React.MouseEvent<HTMLCanvasElement>) {

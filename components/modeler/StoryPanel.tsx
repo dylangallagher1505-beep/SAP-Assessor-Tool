@@ -304,29 +304,59 @@ export default function StoryPanel() {
                 <label className="text-gray-500">Type</label>
                 <select
                   value={roofConfig.type}
-                  onChange={(e) => updateRoof({ type: e.target.value as any })}
+                  onChange={(e) => updateRoof({ type: e.target.value as any, ridge: null, ridgeHeight: null })}
                   className="block mt-0.5 w-full bg-white border border-gray-200 rounded px-2 py-1 text-gray-700 focus:outline-none focus:border-emerald-500"
                 >
                   <option value="flat">Flat</option>
                   <option value="shed">Shed (Mono-pitch)</option>
-                  <option value="gable">Cross-Gable</option>
+                  <option value="gable">Gable</option>
                   <option value="hip">Hip</option>
                 </select>
               </div>
 
               {roofConfig.type !== 'flat' && (
-                <div>
-                  <label className="text-gray-500">Pitch: {roofConfig.pitchDegrees}°</label>
-                  <input
-                    type="range"
-                    min={5}
-                    max={60}
-                    step={1}
-                    value={roofConfig.pitchDegrees}
-                    onChange={(e) => updateRoof({ pitchDegrees: parseInt(e.target.value) })}
-                    className="w-full mt-0.5 accent-emerald-600"
-                  />
-                </div>
+                <>
+                  <div>
+                    <label className="text-gray-500">Pitch: {roofConfig.pitchDegrees}°</label>
+                    <input
+                      type="range"
+                      min={5}
+                      max={60}
+                      step={1}
+                      value={roofConfig.pitchDegrees}
+                      onChange={(e) => updateRoof({ pitchDegrees: parseInt(e.target.value), ridgeHeight: null })}
+                      className="w-full mt-0.5 accent-emerald-600"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <label className="text-gray-500 shrink-0">Ridge height</label>
+                    <input
+                      type="number"
+                      step={0.1}
+                      min={0}
+                      placeholder="auto"
+                      value={roofConfig.ridgeHeight ?? ''}
+                      onChange={(e) => updateRoof({ ridgeHeight: e.target.value === '' ? null : Math.max(0, parseFloat(e.target.value) || 0) })}
+                      className="w-16 bg-white border border-gray-200 rounded px-2 py-0.5 text-gray-700 focus:outline-none focus:border-emerald-500"
+                    />
+                    <span className="text-gray-400">m</span>
+                  </div>
+
+                  {(roofConfig.ridge || roofConfig.ridgeHeight != null) && (
+                    <button
+                      onClick={() => updateRoof({ ridge: null, ridgeHeight: null })}
+                      className="self-start text-emerald-700 hover:text-emerald-800"
+                    >
+                      ↺ Reset ridge to auto
+                    </button>
+                  )}
+
+                  <p className="text-gray-400 italic leading-snug">
+                    Drag the red ridge diamonds on the 2D plan (Select tool) to reshape the roof —
+                    ridge ends inside the plan give hips, on the edge give gables.
+                  </p>
+                </>
               )}
             </div>
           )

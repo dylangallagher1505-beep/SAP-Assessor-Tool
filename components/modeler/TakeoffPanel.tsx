@@ -121,6 +121,17 @@ function buildFabricSchedule(stories: ReturnType<typeof useModelerStore.getState
       uValue: 0.16,
       heatLossArea: rt.totalArea,
     })
+    // Gable-end triangles are wall fabric, not roof
+    if (rt.gableWallArea > 0.01) {
+      rows.push({
+        ref: 'W-G',
+        element: 'Gable ends',
+        type: 'External Wall',
+        grossArea: rt.gableWallArea, openingArea: 0, netArea: rt.gableWallArea,
+        uValue: 0.18,
+        heatLossArea: rt.gableWallArea,
+      })
+    }
   }
 
   return rows
@@ -255,7 +266,10 @@ export default function TakeoffPanel() {
                 <tbody>
                   {roofTakeoff.planes.map((p, i) => (
                     <tr key={i} className="border-b border-gray-100">
-                      <td className="py-1 text-gray-500">{p.label}</td>
+                      <td className="py-1 text-gray-500">
+                        {p.label}
+                        {p.isWall && <span className="ml-1 text-[9px] px-1 py-px rounded bg-gray-100 text-gray-400 font-medium">wall</span>}
+                      </td>
                       <td className="py-1 text-right text-gray-700">{fmt(p.area)} m²</td>
                     </tr>
                   ))}

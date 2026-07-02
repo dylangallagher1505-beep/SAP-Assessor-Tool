@@ -1,9 +1,10 @@
 'use client'
-import { Canvas } from '@react-three/fiber'
+import { Canvas, useThree } from '@react-three/fiber'
 import { OrbitControls, Grid, Edges } from '@react-three/drei'
 import * as THREE from 'three'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { useModelerStore, Story, Wall, Point2D, RoofConfig, Opening, SelectedFace } from '@/lib/modelerStore'
+import { buildRoofFaces, RoofFace } from '@/lib/roofGeometry'
 
 // ─── Extruded Room ────────────────────────────────────────────────────────────
 
@@ -142,122 +143,6 @@ function FloorSlab({ story }: { story: Story }) {
 // ─── Roof generator ───────────────────────────────────────────────────────────
 
 /** Each plane = array of coplanar [x,y,z] vertices (triangle-fan from v[0]) */
-type RoofFace = { verts: [number, number, number][]; label: string }
-
-function buildRoofFaces(pts: Point2D[], eaveY: number, cfg: RoofConfig): RoofFace[] {
-  if (pts.length < 3) return []
-
-  const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y)
-  const minX = Math.min(...xs), maxX = Math.max(...xs)
-  const minY = Math.min(...ys), maxY = Math.max(...ys)
-  const w = maxX - minX   // east-west span
-  const d = maxY - minY   // north-south span
-  const cx = (minX + maxX) / 2
-  const cy = (minY + maxY) / 2
-  const pitchRad = (cfg.pitchDegrees * Math.PI) / 180
-  const rise = (Math.min(w, d) / 2) * Math.tan(pitchRad)
-
-  if (cfg.type === 'flat') {
-    const verts = pts.map((p) => [p.x, eaveY + 0.05, p.y] as [number, number, number])
-    return [{ verts, label: 'Flat Roof' }]
-  }
-
-  if (cfg.type === 'shed') {
-    // Single slope: low eave at minY, high at maxY
-    const highY = eaveY + d * Math.tan(pitchRad)
-    return [{
-      label: 'Shed',
-      verts: [
-        [minX, eaveY, minY],
-        [maxX, eaveY, minY],
-        [maxX, highY,  maxY],
-        [minX, highY,  maxY],
-      ],
-    }]
-  }
-
-  if (cfg.type === 'gable') {
-    const ridgeY = eaveY + rise
-    // Ridge runs east-west at centre (N-S midpoint)
-    return [
-      {
-        label: 'Front Slope',
-        verts: [
-          [minX, eaveY, minY],
-          [maxX, eaveY, minY],
-          [maxX, ridgeY, cy],
-          [minX, ridgeY, cy],
-        ],
-      },
-      {
-        label: 'Rear Slope',
-        verts: [
-          [maxX, eaveY, maxY],
-          [minX, eaveY, maxY],
-          [minX, ridgeY, cy],
-          [maxX, ridgeY, cy],
-        ],
-      },
-      {
-        label: 'Gable West',
-        verts: [
-          [minX, eaveY, minY],
-          [minX, ridgeY, cy],
-          [minX, eaveY, maxY],
-        ],
-      },
-      {
-        label: 'Gable East',
-        verts: [
-          [maxX, eaveY, maxY],
-          [maxX, ridgeY, cy],
-          [maxX, eaveY, minY],
-        ],
-      },
-    ]
-  }
-
-  if (cfg.type === 'hip') {
-    const ridgeY = eaveY + rise
-    // Ridge runs E-W; hip ends taper to a point
-    const hipOffsetX = (d / 2) // how far ridge is inset from E/W ends
-    const ridgeMinX = minX + hipOffsetX
-    const ridgeMaxX = maxX - hipOffsetX
-    if (ridgeMinX >= ridgeMaxX) {
-      // Square plan — hip meets at a point (pyramid)
-      return [
-        { label: 'Hip South', verts: [[minX, eaveY, minY], [maxX, eaveY, minY], [cx, ridgeY, cy]] },
-        { label: 'Hip North', verts: [[maxX, eaveY, maxY], [minX, eaveY, maxY], [cx, ridgeY, cy]] },
-        { label: 'Hip East',  verts: [[maxX, eaveY, minY], [maxX, eaveY, maxY], [cx, ridgeY, cy]] },
-        { label: 'Hip West',  verts: [[minX, eaveY, maxY], [minX, eaveY, minY], [cx, ridgeY, cy]] },
-      ]
-    }
-    return [
-      {
-        label: 'Hip Front',
-        verts: [
-          [minX, eaveY, minY],
-          [maxX, eaveY, minY],
-          [ridgeMaxX, ridgeY, cy],
-          [ridgeMinX, ridgeY, cy],
-        ],
-      },
-      {
-        label: 'Hip Rear',
-        verts: [
-          [maxX, eaveY, maxY],
-          [minX, eaveY, maxY],
-          [ridgeMinX, ridgeY, cy],
-          [ridgeMaxX, ridgeY, cy],
-        ],
-      },
-      { label: 'Hip End W', verts: [[minX, eaveY, maxY], [minX, eaveY, minY], [ridgeMinX, ridgeY, cy]] },
-      { label: 'Hip End E', verts: [[maxX, eaveY, minY], [maxX, eaveY, maxY], [ridgeMaxX, ridgeY, cy]] },
-    ]
-  }
-
-  return []
-}
 
 function faceToGeometry(verts: [number, number, number][]): THREE.BufferGeometry {
   const geom = new THREE.BufferGeometry()
@@ -361,17 +246,51 @@ function OpeningMeshes({ story }: { story: Story }) {
 
 // ─── Scene ────────────────────────────────────────────────────────────────────
 
+/** Re-targets the orbit camera when the model's bounds change (rounded to avoid churn). */
+function CameraRig({ cx, cz, height, radius }: { cx: number; cz: number; height: number; radius: number }) {
+  const controls = useThree((s) => s.controls) as unknown as { target: THREE.Vector3; update: () => void } | null
+  const camera = useThree((s) => s.camera)
+  const key = `${Math.round(cx)}|${Math.round(cz)}|${Math.round(radius)}`
+  useEffect(() => {
+    if (!controls) return
+    controls.target.set(cx, height / 2, cz)
+    camera.position.set(cx + radius * 0.85, height / 2 + radius * 0.75, cz + radius * 0.85)
+    controls.update()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, controls])
+  return null
+}
+
 function Scene() {
   const { stories, activeStoryId, roofConfig, showRoof, selectedFace, setSelectedFace } = useModelerStore()
 
   const topStory = stories.length > 0 ? stories[stories.length - 1] : null
   const roofEaveY = topStory ? topStory.startHeight + topStory.storyHeight : 0
-  const roofFootprint = topStory?.footprintPolygon.length ?? 0 >= 3
+  const roofFootprint = (topStory?.footprintPolygon.length ?? 0) >= 3
     ? topStory!.footprintPolygon
     : topStory ? wallsToConvexHull(topStory.walls) : []
 
+  // Auto-frame the camera on the model whenever its bounds change materially
+  const allPts = stories.flatMap((s) => [
+    ...s.rooms.flatMap((r) => r.polygon),
+    ...s.walls.flatMap((w) => [w.start, w.end]),
+  ])
+  const totalH = stories.length > 0
+    ? Math.max(...stories.map((s) => s.startHeight + s.storyHeight))
+    : 3
+  let cx = 0, cz = 0, radius = 12
+  if (allPts.length > 0) {
+    const xs = allPts.map((p) => p.x), ys = allPts.map((p) => p.y)
+    const minX = Math.min(...xs), maxX = Math.max(...xs)
+    const minY = Math.min(...ys), maxY = Math.max(...ys)
+    cx = (minX + maxX) / 2
+    cz = (minY + maxY) / 2
+    radius = Math.max(8, Math.sqrt((maxX - minX) ** 2 + (maxY - minY) ** 2) * 0.9 + totalH)
+  }
+
   return (
     <>
+      <CameraRig cx={cx} cz={cz} height={totalH} radius={radius} />
       <ambientLight intensity={0.8} />
       <directionalLight position={[10, 20, 10]} intensity={1.0} castShadow />
       <directionalLight position={[-8, 10, -8]} intensity={0.3} />
