@@ -46,7 +46,7 @@ export default function Toolbar() {
   }
 
   return (
-    <div className="flex items-center gap-4 px-3 py-2 bg-white/90 border border-gray-200 rounded-xl text-sm shadow-sm flex-wrap backdrop-blur">
+    <div className="flex items-center gap-4 px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm shadow-sm flex-wrap">
       {/* Drawing tools */}
       <Segmented>
         {tools.map((t) => (

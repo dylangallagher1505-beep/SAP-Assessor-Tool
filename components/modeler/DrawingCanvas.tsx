@@ -1035,9 +1035,8 @@ export default function DrawingCanvas({ className }: Props) {
 
       {/* Keyboard measurement panel — shown when a wall is in progress */}
       {drawingTool === 'wall' && pendingStart && (
-        <div className="flex items-center gap-3 px-3 py-2 bg-white border border-gray-200 rounded-xl shadow-sm">
+        <div className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-xl shadow-sm flex-wrap">
           {/* Wall name */}
-          <span className="text-xs text-gray-500 shrink-0">Name</span>
           <input
             ref={wallNameInputRef}
             type="text"
@@ -1045,59 +1044,54 @@ export default function DrawingCanvas({ className }: Props) {
             value={wallName}
             onChange={(e) => setWallName(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Tab') { e.preventDefault(); lengthInputRef.current?.focus() } }}
-            className="w-24 bg-white border border-gray-200 rounded-lg px-2 py-1 text-gray-800 text-sm focus:outline-none focus:border-emerald-500"
+            className="w-20 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1 text-gray-800 text-xs font-medium focus:outline-none focus:border-emerald-500 focus:bg-white"
+            title="Wall name"
           />
-          <div className="h-4 w-px bg-gray-200" />
-          {/* Step 1 */}
-          <span className="text-xs text-gray-500 shrink-0">① Length&nbsp;(m)</span>
-          <input
-            ref={lengthInputRef}
-            type="text"
-            inputMode="decimal"
-            placeholder="e.g. 3.5"
-            value={kbLength}
-            onChange={(e) => setKbLength(e.target.value)}
-            onKeyDown={handleLengthKeyDown}
-            className="w-24 bg-white border border-gray-200 rounded-lg px-2 py-1 text-gray-800 text-sm focus:outline-none focus:border-emerald-500"
-            autoFocus
-          />
-
-          {/* Step 2 */}
-          <span className="text-xs text-gray-500 shrink-0">② Direction</span>
-          <div className="grid grid-cols-3 gap-0.5">
-            <div />
-            <button onClick={() => handleDirButton({ x: 0, y: 1 })} title="North"
-              className={`p-1.5 rounded ${kbDir?.y === 1 && kbDir?.x === 0 ? 'bg-green-600 text-white' : 'bg-white border border-gray-200 hover:bg-gray-50'}`}>
-              <ArrowUp size={13} className={kbDir?.y === 1 && kbDir?.x === 0 ? 'text-white' : 'text-gray-600'} />
-            </button>
-            <div />
-            <button onClick={() => handleDirButton({ x: -1, y: 0 })} title="West"
-              className={`p-1.5 rounded ${kbDir?.x === -1 ? 'bg-green-600 text-white' : 'bg-white border border-gray-200 hover:bg-gray-50'}`}>
-              <ArrowLeft size={13} className={kbDir?.x === -1 ? 'text-white' : 'text-gray-600'} />
-            </button>
-            <button onClick={() => handleDirButton({ x: 0, y: -1 })} title="South"
-              className={`p-1.5 rounded ${kbDir?.y === -1 && kbDir?.x === 0 ? 'bg-green-600 text-white' : 'bg-white border border-gray-200 hover:bg-gray-50'}`}>
-              <ArrowDown size={13} className={kbDir?.y === -1 && kbDir?.x === 0 ? 'text-white' : 'text-gray-600'} />
-            </button>
-            <button onClick={() => handleDirButton({ x: 1, y: 0 })} title="East"
-              className={`p-1.5 rounded ${kbDir?.x === 1 ? 'bg-green-600 text-white' : 'bg-white border border-gray-200 hover:bg-gray-50'}`}>
-              <ArrowRight size={13} className={kbDir?.x === 1 ? 'text-white' : 'text-gray-600'} />
-            </button>
+          <div className="flex items-center gap-1">
+            <input
+              ref={lengthInputRef}
+              type="text"
+              inputMode="decimal"
+              placeholder="Length"
+              value={kbLength}
+              onChange={(e) => setKbLength(e.target.value)}
+              onKeyDown={handleLengthKeyDown}
+              className="w-16 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1 text-gray-800 text-xs font-mono font-semibold focus:outline-none focus:border-emerald-500 focus:bg-white"
+              autoFocus
+              title="Length in metres — then pick a direction"
+            />
+            <span className="text-[10px] text-gray-400 font-medium">m</span>
           </div>
 
-          <span className="text-xs text-gray-400">
-            {parseFloat(kbLength) > 0
-              ? 'Click a direction arrow (or press ↑ ↓ ← → on keyboard)'
-              : 'Type a length first, then pick direction'}
+          {/* Direction — inline arrow row */}
+          <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-emerald-950/5 border border-emerald-950/5">
+            {([
+              { dir: { x: -1, y: 0 }, icon: <ArrowLeft size={12} />, label: 'West' },
+              { dir: { x: 0, y: 1 }, icon: <ArrowUp size={12} />, label: 'North' },
+              { dir: { x: 0, y: -1 }, icon: <ArrowDown size={12} />, label: 'South' },
+              { dir: { x: 1, y: 0 }, icon: <ArrowRight size={12} />, label: 'East' },
+            ] as const).map(({ dir, icon, label }) => {
+              const active = kbDir?.x === dir.x && kbDir?.y === dir.y
+              return (
+                <button key={label} onClick={() => handleDirButton(dir)} title={label}
+                  className={`p-1.5 rounded-md transition-all ${active ? 'bg-emerald-700 text-white shadow-sm' : 'text-gray-500 hover:text-emerald-800 hover:bg-white'}`}>
+                  {icon}
+                </button>
+              )
+            })}
+          </div>
+
+          <span className="text-[10px] text-gray-400 hidden xl:inline">
+            {parseFloat(kbLength) > 0 ? 'pick direction (or ↑↓←→)' : 'type length, then direction — or click the canvas'}
           </span>
           {wallChain.length >= 2 && (
             <button onClick={closeShape}
-              className="px-3 py-1 rounded-lg bg-green-600 hover:bg-green-700 text-white text-xs font-medium shrink-0">
-              ✓ Close Shape
+              className="px-2.5 py-1 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold shrink-0 shadow-sm">
+              ✓ Close
             </button>
           )}
           <button onClick={() => { setPendingStart(null); setWallChain([]); setKbLength(''); setKbDir(null) }}
-            className="ml-auto text-xs text-gray-400 hover:text-red-500 shrink-0">✕ Cancel</button>
+            className="ml-auto text-xs text-gray-400 hover:text-red-500 shrink-0" title="Cancel drawing (Esc)">✕</button>
         </div>
       )}
 

@@ -215,15 +215,15 @@ export default function UValueCalculator() {
             onClick={() => setHeatFlow(hf)}
             className={`px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors ${heatFlow === hf ? 'bg-emerald-700 text-white border-emerald-700' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
           >
-            {hf === 'horizontal' ? 'Wall' : hf === 'upward' ? 'Floor / Ground' : 'Roof / Ceiling'}
+            {hf === 'horizontal' ? 'Wall' : hf === 'upward' ? 'Floor' : 'Roof'}
           </button>
         ))}
       </div>
 
       {/* ── Layer table ── */}
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-        <div className="px-3 py-2 border-b border-gray-100 text-xs text-gray-400 font-medium grid grid-cols-[1fr_52px_72px_72px_20px_20px] gap-1.5 items-center">
-          <span>Layer (outside → inside)</span>
+        <div className="px-3 py-2 border-b border-gray-100 text-xs text-gray-400 font-medium grid grid-cols-[minmax(0,1fr)_42px_52px_52px_16px_16px] gap-1.5 items-center">
+          <span>Layer</span>
           <span className="text-center">mm</span>
           <span className="text-center">λ W/mK</span>
           <span className="text-center">R m²K/W</span>
@@ -232,18 +232,15 @@ export default function UValueCalculator() {
         </div>
 
         {/* Rse row */}
-        <div className="px-3 py-1.5 border-b border-gray-100 bg-slate-50 grid grid-cols-[1fr_52px_72px_72px_20px_20px] gap-1.5 items-center text-xs text-gray-400 italic">
-          <span>External surface resistance (Rse)</span>
-          <span />
-          <span />
-          <span className="text-center">{rse.toFixed(2)}</span>
-          <span /><span />
+        <div className="px-3 py-1.5 border-b border-gray-100 bg-slate-50 flex items-center justify-between text-xs text-gray-400 italic">
+          <span className="whitespace-nowrap">Rse — external surface</span>
+          <span className="font-mono not-italic">{rse.toFixed(2)}</span>
         </div>
 
         {layers.map((layer, idx) => {
           const r = calcR(layer)
           return (
-            <div key={layer.id} className="px-3 py-1.5 border-b border-gray-100 grid grid-cols-[1fr_52px_72px_72px_20px_20px] gap-1.5 items-center hover:bg-gray-50 group">
+            <div key={layer.id} className="px-3 py-1.5 border-b border-gray-100 grid grid-cols-[minmax(0,1fr)_42px_52px_52px_16px_16px] gap-1.5 items-center hover:bg-gray-50 group">
               <input
                 value={layer.description}
                 onChange={e => updateLayer(layer.id, { description: e.target.value })}
@@ -282,12 +279,9 @@ export default function UValueCalculator() {
         })}
 
         {/* Rsi row */}
-        <div className="px-3 py-1.5 border-b border-gray-100 bg-slate-50 grid grid-cols-[1fr_52px_72px_72px_20px_20px] gap-1.5 items-center text-xs text-gray-400 italic">
-          <span>Internal surface resistance (Rsi)</span>
-          <span />
-          <span />
-          <span className="text-center">{rsi.toFixed(2)}</span>
-          <span /><span />
+        <div className="px-3 py-1.5 border-b border-gray-100 bg-slate-50 flex items-center justify-between text-xs text-gray-400 italic">
+          <span className="whitespace-nowrap">Rsi — internal surface</span>
+          <span className="font-mono not-italic">{rsi.toFixed(2)}</span>
         </div>
 
         <div className="px-3 py-2 flex items-center gap-3">

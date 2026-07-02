@@ -2,7 +2,7 @@
 import { useMemo, useState } from 'react'
 import { useModelerStore } from '@/lib/modelerStore'
 import { calcStoryTakeoff, calcRoofTakeoff, polygonArea } from '@/lib/takeoffCalc'
-import { Ruler, Layers, Home, Table, Download, Thermometer } from 'lucide-react'
+import { Ruler, Layers, Home, Table, Download } from 'lucide-react'
 import UValueCalculator from '@/components/uvalue/UValueCalculator'
 
 function fmt(n: number, dp = 2) { return n.toFixed(dp) }
@@ -167,12 +167,22 @@ export default function TakeoffPanel() {
       </div>
 
       {/* Tab switcher */}
-      <div className="flex rounded-lg overflow-hidden border border-gray-200 text-xs">
-        <button onClick={() => setTab('summary')} className={`flex-1 py-1 font-medium ${tab === 'summary' ? 'bg-emerald-700 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>Summary</button>
-        <button onClick={() => setTab('schedule')} className={`flex-1 py-1 font-medium ${tab === 'schedule' ? 'bg-emerald-700 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>SAP Schedule</button>
-        <button onClick={() => setTab('uvalue')} className={`flex-1 py-1 font-medium flex items-center justify-center gap-1 ${tab === 'uvalue' ? 'bg-emerald-700 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
-          <Thermometer size={10} /> U-Value
-        </button>
+      <div className="flex gap-0.5 p-0.5 rounded-lg bg-emerald-950/5 border border-emerald-950/5 text-xs">
+        {([
+          { id: 'summary', label: 'Summary' },
+          { id: 'schedule', label: 'Schedule' },
+          { id: 'uvalue', label: 'U-Value' },
+        ] as const).map(({ id, label }) => (
+          <button
+            key={id}
+            onClick={() => setTab(id)}
+            className={`flex-1 py-1 rounded-md font-semibold whitespace-nowrap transition-all ${
+              tab === id ? 'bg-white text-emerald-800 shadow-[0_1px_4px_rgba(12,42,31,0.12)]' : 'text-gray-500 hover:text-emerald-800'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {tab === 'summary' && (
@@ -180,25 +190,25 @@ export default function TakeoffPanel() {
           {/* Summary cards */}
           <div className="grid grid-cols-2 gap-2">
             <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2">
-              <div className="text-xs text-emerald-700">Total Floor Area</div>
-              <div className="text-lg font-bold text-emerald-900">{fmt(totalFloor)} m²</div>
+              <div className="text-[10px] font-medium text-emerald-700 uppercase tracking-wide">Floor Area</div>
+              <div className="text-lg font-bold text-emerald-900 whitespace-nowrap">{fmt(totalFloor)}<span className="text-[10px] font-semibold text-emerald-600 ml-0.5">m²</span></div>
             </div>
             <div className="bg-gray-50 border border-gray-200 rounded-lg p-2">
-              <div className="text-xs text-gray-500">Gross Wall Area</div>
-              <div className="text-lg font-bold text-gray-800">{fmt(totalWall)} m²</div>
+              <div className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Wall Area</div>
+              <div className="text-lg font-bold text-gray-800 whitespace-nowrap">{fmt(totalWall)}<span className="text-[10px] font-semibold text-gray-400 ml-0.5">m²</span></div>
             </div>
             <div className="bg-sky-50 border border-sky-200 rounded-lg p-2">
-              <div className="text-xs text-sky-600">Windows</div>
-              <div className="text-lg font-bold text-sky-800">{fmt(totalWindowArea)} m²</div>
+              <div className="text-[10px] font-medium text-sky-600 uppercase tracking-wide">Windows</div>
+              <div className="text-lg font-bold text-sky-800 whitespace-nowrap">{fmt(totalWindowArea)}<span className="text-[10px] font-semibold text-sky-500 ml-0.5">m²</span></div>
             </div>
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-2">
-              <div className="text-xs text-amber-600">Doors</div>
-              <div className="text-lg font-bold text-amber-800">{fmt(totalDoorArea)} m²</div>
+              <div className="text-[10px] font-medium text-amber-600 uppercase tracking-wide">Doors</div>
+              <div className="text-lg font-bold text-amber-800 whitespace-nowrap">{fmt(totalDoorArea)}<span className="text-[10px] font-semibold text-amber-500 ml-0.5">m²</span></div>
             </div>
             {effectiveSolarArea > 0 && (
               <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-2 col-span-2">
-                <div className="text-xs text-yellow-600">Effective Solar Area (0.9×A×g)</div>
-                <div className="text-lg font-bold text-yellow-800">{fmt(effectiveSolarArea)} m²</div>
+                <div className="text-[10px] font-medium text-yellow-600 uppercase tracking-wide">Effective Solar Area (0.9×A×g)</div>
+                <div className="text-lg font-bold text-yellow-800 whitespace-nowrap">{fmt(effectiveSolarArea)}<span className="text-[10px] font-semibold text-yellow-500 ml-0.5">m²</span></div>
               </div>
             )}
           </div>

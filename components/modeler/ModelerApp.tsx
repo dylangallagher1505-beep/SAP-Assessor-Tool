@@ -33,7 +33,7 @@ export default function ModelerApp() {
         </div>
 
         {/* Far right: Takeoff */}
-        <div className="w-52 shrink-0">
+        <div className="w-80 shrink-0">
           <TakeoffPanel />
         </div>
       </div>
