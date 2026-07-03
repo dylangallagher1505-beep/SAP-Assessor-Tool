@@ -22,7 +22,8 @@ function ExtrudedRoom({ story, isActive }: { story: Story; isActive: boolean }) 
   if (!geom) return null
 
   return (
-    <mesh geometry={geom} rotation={[-Math.PI / 2, 0, 0]} position={[0, story.startHeight, 0]}>
+    // local-y flip undoes the rotation's y→-z mirror so the volume aligns with walls/roof (world z = plan y)
+    <mesh geometry={geom} rotation={[-Math.PI / 2, 0, 0]} scale={[1, -1, 1]} position={[0, story.startHeight, 0]}>
       <meshStandardMaterial
         color={isActive ? '#059669' : '#64748b'}
         opacity={isActive ? 0.3 : 0.15}
@@ -133,7 +134,8 @@ function FloorSlab({ story }: { story: Story }) {
   if (!shape) return null
 
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, story.startHeight + 0.01, 0]}>
+    // local-y flip keeps the slab aligned with walls/roof (world z = plan y)
+    <mesh rotation={[-Math.PI / 2, 0, 0]} scale={[1, -1, 1]} position={[0, story.startHeight + 0.01, 0]}>
       <shapeGeometry args={[shape]} />
       <meshStandardMaterial color="#e2e8f0" opacity={0.9} transparent side={THREE.DoubleSide} />
     </mesh>
