@@ -5,6 +5,7 @@ import { calcStoryTakeoff, calcRoofTakeoff, polygonArea } from '@/lib/takeoffCal
 import { computeAdjacencies } from '@/lib/adjacency'
 import { Ruler, Layers, Home, Table, Download } from 'lucide-react'
 import UValueCalculator from '@/components/uvalue/UValueCalculator'
+import ThermalBridges from './ThermalBridges'
 
 function fmt(n: number, dp = 2) { return n.toFixed(dp) }
 
@@ -188,7 +189,7 @@ function exportCSV(rows: FabricRow[]) {
 
 export default function TakeoffPanel() {
   const { stories, roofConfig } = useModelerStore()
-  const [tab, setTab] = useState<'summary' | 'schedule' | 'uvalue'>('summary')
+  const [tab, setTab] = useState<'summary' | 'schedule' | 'uvalue' | 'bridges'>('summary')
 
   const storyTakeoffs = useMemo(() => stories.map(calcStoryTakeoff), [stories])
   const roofTakeoff = useMemo(() => {
@@ -219,6 +220,7 @@ export default function TakeoffPanel() {
           { id: 'summary', label: 'Summary' },
           { id: 'schedule', label: 'Schedule' },
           { id: 'uvalue', label: 'U-Value' },
+          { id: 'bridges', label: 'Bridges' },
         ] as const).map(({ id, label }) => (
           <button
             key={id}
@@ -380,6 +382,10 @@ export default function TakeoffPanel() {
 
       {tab === 'uvalue' && (
         <UValueCalculator />
+      )}
+
+      {tab === 'bridges' && (
+        <ThermalBridges />
       )}
     </div>
   )
