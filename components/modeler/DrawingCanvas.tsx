@@ -2,6 +2,7 @@
 import { useRef, useEffect, useCallback, useState } from 'react'
 import { useModelerStore, Point2D, Wall } from '@/lib/modelerStore'
 import { effectiveRidge, defaultRidge } from '@/lib/roofGeometry'
+import { computeAdjacencies } from '@/lib/adjacency'
 import { ZoomIn, ZoomOut, Maximize2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Trash2, Square as SquareIcon, DoorOpen } from 'lucide-react'
 import WallFaceEditor from './WallFaceEditor'
 
@@ -653,16 +654,23 @@ export default function DrawingCanvas({ className }: Props) {
     // Stories
     for (const story of stories) {
       const isActive = story.id === activeStoryId
+      const storyAdj = computeAdjacencies(story.walls)
       for (const w of story.walls) {
         const isSelected = w.id === selectedWallId
         const isHovered = w.id === hoveredWallId && !pendingStart && polyPoints.length === 0
         const a = worldToCanvas(w.start, pan, zoom)
         const b = worldToCanvas(w.end, pan, zoom)
+        // Adjacency: a wall shared with a neighbouring room is an internal partition
+        const wl = Math.hypot(w.end.x - w.start.x, w.end.y - w.start.y)
+        const shared = storyAdj.get(w.id)?.sharedLength ?? 0
+        const isInternal = shared >= wl - 0.1 && wl > 0.1
 
-        // Wall stroke
-        ctx.strokeStyle = isSelected ? '#f59e0b' : isHovered ? '#fb923c' : (isActive ? '#065f46' : '#94a3b8')
-        ctx.lineWidth = isSelected ? 3.5 : isHovered ? 3 : (isActive ? 2.5 : 1)
+        // Wall stroke — internal partitions dashed grey, external solid
+        ctx.strokeStyle = isSelected ? '#f59e0b' : isHovered ? '#fb923c' : isInternal ? '#94a3b8' : (isActive ? '#065f46' : '#94a3b8')
+        ctx.lineWidth = isSelected ? 3.5 : isHovered ? 3 : isInternal ? 1.5 : (isActive ? 2.5 : 1)
+        ctx.setLineDash(isInternal && !isSelected ? [5, 4] : [])
         ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke()
+        ctx.setLineDash([])
 
         if (isActive) {
           ctx.fillStyle = isSelected ? '#f59e0b' : '#10b981'

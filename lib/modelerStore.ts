@@ -78,7 +78,9 @@ export interface StoryTakeoff {
   storyId: string
   storyName: string
   floorArea: number
-  wallSurfaceArea: number
+  wallSurfaceArea: number      // gross — every wall, both faces of shared walls
+  externalWallArea: number     // exposed to outside only (heat-loss), via adjacency
+  internalWallArea: number     // shared partitions between rooms
 }
 
 export interface RoofTakeoff {

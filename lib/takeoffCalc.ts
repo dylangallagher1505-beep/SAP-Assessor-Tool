@@ -1,5 +1,6 @@
 import type { Story, Wall, Point2D, RoofConfig, StoryTakeoff, RoofTakeoff } from './modelerStore'
 import { buildRoofFaces } from './roofGeometry'
+import { computeAdjacencies } from './adjacency'
 
 // ─── Geometry helpers ────────────────────────────────────────────────────────
 
@@ -34,11 +35,24 @@ export function polygonBBox(pts: Point2D[]): { minX: number; maxX: number; minY:
 // ─── Per-story takeoff ────────────────────────────────────────────────────────
 
 export function calcStoryTakeoff(story: Story): StoryTakeoff {
-  const wallSurfaceArea = story.walls.reduce((sum, w) => {
+  const adj = computeAdjacencies(story.walls)
+  let wallSurfaceArea = 0
+  let externalWallArea = 0
+  let internalWallArea = 0
+  for (const w of story.walls) {
     const hl = w.heightLeft ?? story.storyHeight
     const hr = w.heightRight ?? story.storyHeight
-    return sum + wallLength(w) * ((hl + hr) / 2)
-  }, 0)
+    const avgH = (hl + hr) / 2
+    const l = wallLength(w)
+    const a = adj.get(w.id)
+    const sharedLen = a?.sharedLength ?? 0
+    const exposedLen = a?.exposedLength ?? l
+    wallSurfaceArea += l * avgH
+    // A wall the user marked party/internal is never external heat-loss fabric
+    const manualNonExternal = w.wallType === 'party' || w.wallType === 'internal'
+    externalWallArea += manualNonExternal ? 0 : exposedLen * avgH
+    internalWallArea += (manualNonExternal ? l : sharedLen) * avgH
+  }
 
   // Floor area: sum all named rooms, or fall back to footprintPolygon, or derive from walls
   let floorArea = 0
@@ -55,7 +69,7 @@ export function calcStoryTakeoff(story: Story): StoryTakeoff {
     floorArea = polygonArea(unique)
   }
 
-  return { storyId: story.id, storyName: story.name, floorArea, wallSurfaceArea }
+  return { storyId: story.id, storyName: story.name, floorArea, wallSurfaceArea, externalWallArea, internalWallArea }
 }
 
 // ─── Roof takeoff ─────────────────────────────────────────────────────────────

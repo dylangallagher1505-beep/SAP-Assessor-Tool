@@ -2,6 +2,7 @@
 import { useMemo, useState } from 'react'
 import { useModelerStore } from '@/lib/modelerStore'
 import { calcStoryTakeoff, calcRoofTakeoff, polygonArea } from '@/lib/takeoffCalc'
+import { computeAdjacencies } from '@/lib/adjacency'
 import { Ruler, Layers, Home, Table, Download } from 'lucide-react'
 import UValueCalculator from '@/components/uvalue/UValueCalculator'
 
@@ -49,28 +50,62 @@ function buildFabricSchedule(stories: ReturnType<typeof useModelerStore.getState
       })
     }
 
+    const adj = computeAdjacencies(story.walls)
+
     for (const wall of story.walls) {
       const len = wallLength(wall.start, wall.end)
       if (len < 0.05) continue
       const hl = wall.heightLeft ?? story.storyHeight
       const hr = wall.heightRight ?? story.storyHeight
-      const grossWallArea = ((hl + hr) / 2) * len
+      const avgH = (hl + hr) / 2
+      const grossWallArea = avgH * len
       const wallOpenings = story.openings.filter(o => o.wallId === wall.id)
       const openingArea = wallOpenings.reduce((s, o) => s + o.width * o.height, 0)
-      const netArea = Math.max(0, grossWallArea - openingArea)
-      const wType = wall.wallType ?? 'external'
       const uVal = wall.uValue ?? 0.18
-      const isHeatLoss = wType === 'external'
-      const typeLabel = wType === 'party' ? 'Party Wall' : wType === 'internal' ? 'Internal Wall' : 'External Wall'
 
-      rows.push({
-        ref: `W${wallRef}`,
-        element: wall.name || `${story.name} Wall ${wallRef}`,
-        type: typeLabel,
-        grossArea: grossWallArea, openingArea, netArea,
-        uValue: uVal,
-        heatLossArea: isHeatLoss ? netArea : 0,
-      })
+      // Adjacency: how much of this wall is shared with a neighbouring room
+      const a = adj.get(wall.id)
+      const sharedLen = a?.sharedLength ?? 0
+      const exposedLen = a?.exposedLength ?? len
+      const manualType = wall.wallType ?? 'external'
+      // A manually-set party/internal wall overrides auto-detection entirely
+      const forcedNonExternal = manualType === 'party' || manualType === 'internal'
+      const autoInternal = !forcedNonExternal && sharedLen >= len - 0.1
+
+      if (forcedNonExternal || autoInternal) {
+        // Whole wall is a partition / party wall — no external heat loss
+        const typeLabel = manualType === 'party' ? 'Party Wall' : autoInternal ? 'Internal Partition (auto)' : 'Internal Wall'
+        rows.push({
+          ref: `W${wallRef}`,
+          element: wall.name || `${story.name} Wall ${wallRef}`,
+          type: typeLabel,
+          grossArea: grossWallArea, openingArea, netArea: Math.max(0, grossWallArea - openingArea),
+          uValue: manualType === 'party' ? uVal : 0,
+          heatLossArea: 0,
+        })
+      } else {
+        // External wall — only the exposed portion loses heat; any shared
+        // portion (partial adjacency) is split off as an internal partition
+        const exposedGross = avgH * exposedLen
+        const exposedNet = Math.max(0, exposedGross - openingArea)
+        rows.push({
+          ref: `W${wallRef}`,
+          element: wall.name || `${story.name} Wall ${wallRef}`,
+          type: sharedLen > 0.1 ? 'External Wall (part shared)' : 'External Wall',
+          grossArea: exposedGross, openingArea, netArea: exposedNet,
+          uValue: uVal,
+          heatLossArea: exposedNet,
+        })
+        if (sharedLen > 0.1) {
+          rows.push({
+            ref: `W${wallRef}i`,
+            element: `${wall.name || `Wall ${wallRef}`} — shared`,
+            type: 'Internal Partition (auto)',
+            grossArea: avgH * sharedLen, openingArea: 0, netArea: avgH * sharedLen,
+            uValue: 0, heatLossArea: 0,
+          })
+        }
+      }
 
       for (const op of wallOpenings.filter(o => o.type === 'window')) {
         rows.push({
@@ -165,7 +200,8 @@ export default function TakeoffPanel() {
   const fabricRows = useMemo(() => buildFabricSchedule(stories, roofConfig), [stories, roofConfig])
 
   const totalFloor = storyTakeoffs.reduce((s, t) => s + t.floorArea, 0)
-  const totalWall = storyTakeoffs.reduce((s, t) => s + t.wallSurfaceArea, 0)
+  const totalWall = storyTakeoffs.reduce((s, t) => s + t.externalWallArea, 0)
+  const totalInternalWall = storyTakeoffs.reduce((s, t) => s + t.internalWallArea, 0)
   const allWindows = stories.flatMap(s => s.openings.filter(o => o.type === 'window'))
   const totalWindowArea = allWindows.reduce((s, o) => s + o.width * o.height, 0)
   const totalDoorArea = stories.flatMap(s => s.openings.filter(o => o.type === 'door')).reduce((s, o) => s + o.width * o.height, 0)
@@ -205,8 +241,9 @@ export default function TakeoffPanel() {
               <div className="text-lg font-bold text-emerald-900 whitespace-nowrap">{fmt(totalFloor)}<span className="text-[10px] font-semibold text-emerald-600 ml-0.5">m²</span></div>
             </div>
             <div className="bg-gray-50 border border-gray-200 rounded-lg p-2">
-              <div className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">Wall Area</div>
+              <div className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">External Wall</div>
               <div className="text-lg font-bold text-gray-800 whitespace-nowrap">{fmt(totalWall)}<span className="text-[10px] font-semibold text-gray-400 ml-0.5">m²</span></div>
+              {totalInternalWall > 0.1 && <div className="text-[9px] text-gray-400 mt-0.5">+{fmt(totalInternalWall)} internal</div>}
             </div>
             <div className="bg-sky-50 border border-sky-200 rounded-lg p-2">
               <div className="text-[10px] font-medium text-sky-600 uppercase tracking-wide">Windows</div>
