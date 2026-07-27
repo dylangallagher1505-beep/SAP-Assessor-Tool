@@ -2,7 +2,7 @@
 import { useRef, useEffect, useCallback, useState } from 'react'
 import { useModelerStore, Point2D, Wall } from '@/lib/modelerStore'
 import { effectiveRidge, defaultRidge } from '@/lib/roofGeometry'
-import { ZoomIn, ZoomOut, Maximize2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Trash2 } from 'lucide-react'
+import { ZoomIn, ZoomOut, Maximize2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Trash2, Square as SquareIcon, DoorOpen } from 'lucide-react'
 import WallFaceEditor from './WallFaceEditor'
 
 const CANVAS_PX = 800
@@ -69,7 +69,7 @@ export default function DrawingCanvas({ className }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const lengthInputRef = useRef<HTMLInputElement>(null)
 
-  const { stories, activeStoryId, drawingTool, gridSizeM, addWall, clearWalls, setFootprint, closePolygon, registerRoom, selectedWallId, setSelectedWallId, removeWall, moveVertex, moveEdge, insertVertex, deleteVertex, setWallLength, pushHistory, undo, redo, roofConfig, updateRoof, showRoof } =
+  const { stories, activeStoryId, drawingTool, gridSizeM, addWall, clearWalls, setFootprint, closePolygon, registerRoom, selectedWallId, setSelectedWallId, removeWall, moveVertex, moveEdge, insertVertex, deleteVertex, setWallLength, pushHistory, undo, redo, roofConfig, updateRoof, showRoof, addOpening, updateOpening, removeOpening } =
     useModelerStore()
   const activeStory = stories.find((s) => s.id === activeStoryId)
 
@@ -132,6 +132,11 @@ export default function DrawingCanvas({ className }: Props) {
   // Exact-length editing of the selected wall
   const [lenEdit, setLenEdit] = useState('')
   const [lenAnchor, setLenAnchor] = useState<'start' | 'end'>('start')
+
+  // Opening placement — arm a window/door then drop it onto a wall
+  const [placingOpening, setPlacingOpening] = useState<'window' | 'door' | null>(null)
+  // Drag an existing opening along its wall (select tool)
+  const dragOpening = useRef<{ openingId: string } | null>(null)
 
   // Clear selection on storey switch
   useEffect(() => {
@@ -202,6 +207,58 @@ export default function DrawingCanvas({ className }: Props) {
     if (lenSq < 1e-6) return a
     const t = Math.max(0.05, Math.min(0.95, ((pt.x - a.x) * dx + (pt.y - a.y) * dy) / lenSq))
     return { x: a.x + t * dx, y: a.y + t * dy }
+  }
+
+  // Default dimensions for a freshly-dropped opening
+  const OPENING_DEFAULTS = {
+    window: { width: 1.2, height: 1.0, sillHeight: 0.9, uValue: 1.4, gValue: 0.63 },
+    door: { width: 0.9, height: 2.0, sillHeight: 0, uValue: 1.4, gValue: 0.63 },
+  } as const
+
+  /** Nearest active-storey wall to a canvas point, with the projected fractional position. */
+  function wallProjectionNear(cx: number, cy: number, threshold = 14):
+    { wallId: string; uOffset: number; len: number; point: Point2D } | null {
+    if (!activeStory) return null
+    let best: { wallId: string; uOffset: number; len: number; point: Point2D } | null = null
+    let bestDist = threshold
+    for (const w of activeStory.walls) {
+      const a = worldToCanvas(w.start, pan, zoom)
+      const b = worldToCanvas(w.end, pan, zoom)
+      const d = distToSegmentPx(cx, cy, a.x, a.y, b.x, b.y)
+      if (d >= bestDist) continue
+      const dx = w.end.x - w.start.x, dy = w.end.y - w.start.y
+      const len = Math.sqrt(dx * dx + dy * dy)
+      if (len < 0.1) continue
+      // fractional position of the cursor projected onto the wall (world space)
+      const wpt = canvasToWorld(cx, cy, pan, zoom)
+      const t = Math.max(0, Math.min(1, ((wpt.x - w.start.x) * dx + (wpt.y - w.start.y) * dy) / (len * len)))
+      bestDist = d
+      best = { wallId: w.id, uOffset: t, len, point: { x: w.start.x + dx * t, y: w.start.y + dy * t } }
+    }
+    return best
+  }
+
+  /** Opening tick near a canvas point (for drag-repositioning), or null. */
+  function openingNear(cx: number, cy: number, threshold = 8): { openingId: string } | null {
+    if (!activeStory) return null
+    for (const op of activeStory.openings) {
+      const w = activeStory.walls.find(ww => ww.id === op.wallId)
+      if (!w) continue
+      const dx = w.end.x - w.start.x, dy = w.end.y - w.start.y
+      const len = Math.sqrt(dx * dx + dy * dy)
+      if (len < 0.1) continue
+      const uMid = op.uOffset + (op.width / len) / 2
+      const mid = { x: w.start.x + dx * uMid, y: w.start.y + dy * uMid }
+      const mc = worldToCanvas(mid, pan, zoom)
+      if (Math.sqrt((cx - mc.x) ** 2 + (cy - mc.y) ** 2) < threshold) return { openingId: op.id }
+    }
+    return null
+  }
+
+  /** Clamp a left-edge uOffset so an opening of the given width stays on the wall. */
+  function clampOffset(uOffset: number, width: number, len: number): number {
+    const wFrac = Math.min(0.98, width / len)
+    return Math.max(0, Math.min(1 - wFrac, uOffset - wFrac / 2))
   }
 
   const getCanvasPos = useCallback((e: MouseEvent | React.MouseEvent): { cx: number; cy: number } => {
@@ -341,6 +398,8 @@ export default function DrawingCanvas({ className }: Props) {
       }
 
       if (e.key === 'Escape') {
+        // Cancel opening placement
+        if (placingOpening) { setPlacingOpening(null); return }
         // Cancel in-progress drawing
         if (pendingStart) {
           setPendingStart(null)
@@ -353,7 +412,7 @@ export default function DrawingCanvas({ className }: Props) {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [pendingStart, wallChain, polyPoints, activeStory, activeStoryId, selectedWallId, removeWall, undo, redo, setSelectedWallId])
+  }, [pendingStart, wallChain, polyPoints, activeStory, activeStoryId, selectedWallId, removeWall, undo, redo, setSelectedWallId, placingOpening])
 
   // ── Zoom / Pan ────────────────────────────────────────────────────────────
 
@@ -405,6 +464,18 @@ export default function DrawingCanvas({ className }: Props) {
       panStart.current = { mx: e.clientX, my: e.clientY, pan: { ...pan } }
       return
     }
+    // Reposition an existing opening by dragging its tick (any tool, left button)
+    if (e.button === 0 && !placingOpening && activeStory) {
+      const { cx, cy } = getCanvasPos(e)
+      const opHit = openingNear(cx, cy)
+      if (opHit) {
+        pushHistory()
+        dragOpening.current = opHit
+        didDrag.current = false
+        return
+      }
+    }
+
     // Vertex / edge drag — select tool, left button
     if (e.button === 0 && drawingTool === 'select' && activeStory) {
       const pt = getWorldPos(e)
@@ -475,6 +546,24 @@ export default function DrawingCanvas({ className }: Props) {
       return
     }
 
+    // Reposition an opening along its wall
+    if (dragOpening.current && activeStory && activeStoryId) {
+      const op = activeStory.openings.find(o => o.id === dragOpening.current!.openingId)
+      const w = op && activeStory.walls.find(ww => ww.id === op.wallId)
+      if (op && w) {
+        const dx = w.end.x - w.start.x, dy = w.end.y - w.start.y
+        const len = Math.sqrt(dx * dx + dy * dy)
+        if (len > 0.1) {
+          const { cx, cy } = getCanvasPos(e)
+          const wpt = canvasToWorld(cx, cy, pan, zoom)
+          const t = ((wpt.x - w.start.x) * dx + (wpt.y - w.start.y) * dy) / (len * len)
+          updateOpening(activeStoryId, op.id, { uOffset: clampOffset(t, op.width, len) })
+          didDrag.current = true
+        }
+      }
+      return
+    }
+
     // Vertex drag
     if (isDraggingVertex.current && dragVertex && activeStory && activeStoryId) {
       const room = activeStory.rooms[dragVertex.roomIdx]
@@ -512,6 +601,7 @@ export default function DrawingCanvas({ className }: Props) {
     }
     dragEdge.current = null
     dragRidgeEnd.current = null
+    dragOpening.current = null
   }
 
   // ── Canvas drawing ─────────────────────────────────────────────────────────
@@ -599,7 +689,7 @@ export default function DrawingCanvas({ className }: Props) {
             ctx.textAlign = 'left'
           }
 
-          // Openings tick marks
+          // Openings tick marks (+ drag handle at the midpoint)
           if (len > 0.01) {
             const wallOpenings = story.openings.filter(o => o.wallId === w.id)
             for (const op of wallOpenings) {
@@ -610,6 +700,12 @@ export default function DrawingCanvas({ className }: Props) {
               ctx.strokeStyle = op.type === 'window' ? '#0ea5e9' : '#f59e0b'
               ctx.lineWidth = 4
               ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke()
+              // Draggable midpoint handle
+              const mid = { x: (pa.x + pb.x) / 2, y: (pa.y + pb.y) / 2 }
+              ctx.fillStyle = '#fff'
+              ctx.strokeStyle = op.type === 'window' ? '#0ea5e9' : '#f59e0b'
+              ctx.lineWidth = 1.5
+              ctx.beginPath(); ctx.arc(mid.x, mid.y, 3.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
             }
           }
         }
@@ -828,6 +924,37 @@ export default function DrawingCanvas({ className }: Props) {
       }
     }
 
+    // Opening placement ghost — snaps to the nearest wall under the cursor
+    if (placingOpening) {
+      const mc = worldToCanvas(mouseWorld, pan, zoom)
+      const proj = wallProjectionNear(mc.x, mc.y, 40)
+      const color = placingOpening === 'window' ? '#0ea5e9' : '#f59e0b'
+      if (proj && activeStory) {
+        const w = activeStory.walls.find(ww => ww.id === proj.wallId)!
+        const d = OPENING_DEFAULTS[placingOpening]
+        const u0 = clampOffset(proj.uOffset, d.width, proj.len)
+        const u1 = u0 + d.width / proj.len
+        const a = worldToCanvas(w.start, pan, zoom)
+        const b = worldToCanvas(w.end, pan, zoom)
+        const pa = { x: a.x + (b.x - a.x) * u0, y: a.y + (b.y - a.y) * u0 }
+        const pb = { x: a.x + (b.x - a.x) * u1, y: a.y + (b.y - a.y) * u1 }
+        ctx.strokeStyle = color
+        ctx.lineWidth = 5
+        ctx.globalAlpha = 0.8
+        ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke()
+        ctx.globalAlpha = 1
+      } else {
+        // No wall nearby — show a floating chip at the cursor
+        ctx.fillStyle = color
+        ctx.globalAlpha = 0.5
+        ctx.beginPath(); ctx.arc(mc.x, mc.y, 6, 0, Math.PI * 2); ctx.fill()
+        ctx.globalAlpha = 1
+      }
+      ctx.fillStyle = color
+      ctx.font = 'bold 11px sans-serif'
+      ctx.fillText(`drop ${placingOpening} on a wall`, mc.x + 12, mc.y - 8)
+    }
+
     // Crosshair
     const mp = worldToCanvas(mouseWorld, pan, zoom)
     ctx.strokeStyle = 'rgba(100,116,139,0.25)'
@@ -848,7 +975,7 @@ export default function DrawingCanvas({ className }: Props) {
     ctx.fillStyle = 'rgba(71,85,105,0.6)'
     ctx.font = '10px monospace'
     ctx.fillText(`(${mouseWorld.x.toFixed(2)}, ${mouseWorld.y.toFixed(2)})  ×${(zoom / BASE_ZOOM).toFixed(1)}`, 6, CANVAS_PX - 6)
-  }, [stories, activeStoryId, pendingStart, mouseWorld, polyPoints, pan, zoom, gridSizeM, drawingTool, previewEnd, kbDir, BASE_ZOOM, wallChain, selectedWallId, hoveredWallId, snappedToVertex, roofRidge, activeStory])
+  }, [stories, activeStoryId, pendingStart, mouseWorld, polyPoints, pan, zoom, gridSizeM, drawingTool, previewEnd, kbDir, BASE_ZOOM, wallChain, selectedWallId, hoveredWallId, snappedToVertex, roofRidge, activeStory, placingOpening])
 
   // ── Click ─────────────────────────────────────────────────────────────────
   function handleClick(e: React.MouseEvent<HTMLCanvasElement>) {
@@ -857,6 +984,26 @@ export default function DrawingCanvas({ className }: Props) {
     if (!activeStoryId) return
     const pt = getWorldPos(e)
     const { cx, cy } = getCanvasPos(e)
+
+    // Drop an armed opening onto the nearest wall
+    if (placingOpening) {
+      const proj = wallProjectionNear(cx, cy, 20)
+      if (proj) {
+        const d = OPENING_DEFAULTS[placingOpening]
+        addOpening(activeStoryId, {
+          wallId: proj.wallId,
+          type: placingOpening,
+          uOffset: clampOffset(proj.uOffset, d.width, proj.len),
+          width: d.width,
+          height: d.height,
+          sillHeight: d.sillHeight,
+          uValue: d.uValue,
+          gValue: d.gValue,
+        })
+        setPlacingOpening(null)
+      }
+      return
+    }
 
     // Wall selection — available in select mode OR when room is closed (wall mode, no pending)
     const canSelect = drawingTool === 'select' || (drawingTool === 'wall' && !pendingStart)
@@ -1184,7 +1331,7 @@ export default function DrawingCanvas({ className }: Props) {
           width={CANVAS_PX}
           height={CANVAS_PX}
           className="rounded-xl border border-gray-200 w-full shadow-sm"
-          style={{ aspectRatio: '1 / 1', cursor: cursorPanning ? 'grabbing' : (drawingTool === 'select' ? 'grab' : 'crosshair') }}
+          style={{ aspectRatio: '1 / 1', cursor: placingOpening ? 'copy' : cursorPanning ? 'grabbing' : (drawingTool === 'select' ? 'grab' : 'crosshair') }}
           onMouseMove={handleMouseMovePan}
           onMouseDown={handleMouseDown}
           onMouseUp={handleMouseUp}
@@ -1193,6 +1340,28 @@ export default function DrawingCanvas({ className }: Props) {
           onContextMenu={handleRightClick}
           onDoubleClick={handleDoubleClick}
         />
+
+        {/* Opening palette — arm a window/door, then click a wall to drop it */}
+        {(activeStory?.walls.length ?? 0) > 0 && (
+          <div className="absolute top-3 left-3 flex items-center gap-1 p-1 rounded-lg bg-white/90 border border-gray-200 shadow-sm backdrop-blur">
+            <span className="text-[10px] font-semibold text-gray-400 px-1">Add</span>
+            <button
+              onClick={() => setPlacingOpening(placingOpening === 'window' ? null : 'window')}
+              className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold transition-colors ${placingOpening === 'window' ? 'bg-sky-500 text-white' : 'text-sky-600 hover:bg-sky-50'}`}
+            >
+              <SquareIcon size={12} /> Window
+            </button>
+            <button
+              onClick={() => setPlacingOpening(placingOpening === 'door' ? null : 'door')}
+              className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold transition-colors ${placingOpening === 'door' ? 'bg-amber-500 text-white' : 'text-amber-600 hover:bg-amber-50'}`}
+            >
+              <DoorOpen size={12} /> Door
+            </button>
+            {placingOpening && (
+              <button onClick={() => setPlacingOpening(null)} className="text-gray-400 hover:text-red-500 px-1 text-xs" title="Cancel (Esc)">✕</button>
+            )}
+          </div>
+        )}
 
         {/* Zoom controls overlay */}
         <div className="absolute bottom-3 right-3 flex flex-col gap-1">

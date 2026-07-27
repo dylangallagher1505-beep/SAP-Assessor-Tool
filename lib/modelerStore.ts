@@ -100,6 +100,9 @@ export type SelectedFace =
 
 export type LengthAnchor = 'start' | 'end'
 
+// Which panels fill the central work area
+export type ViewMode = '2d' | '3d' | 'split'
+
 interface ModelerState {
   stories: Story[]
   activeStoryId: string | null
@@ -111,6 +114,7 @@ interface ModelerState {
   drawingTool: DrawingTool
   showRoof: boolean
   gridSizeM: number
+  viewMode: ViewMode
 
   addStory: () => void
   removeStory: (id: string) => void
@@ -152,6 +156,7 @@ interface ModelerState {
   setShowRoof: (v: boolean) => void
   setDrawingTool: (t: DrawingTool) => void
   setGridSize: (m: number) => void
+  setViewMode: (v: ViewMode) => void
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -228,6 +233,7 @@ export const useModelerStore = create<ModelerState>()(
   drawingTool: 'wall',
   showRoof: true,
   gridSizeM: 0.5,
+  viewMode: 'split',
 
   addStory: () =>
     set((s) => {
@@ -641,6 +647,7 @@ export const useModelerStore = create<ModelerState>()(
 
   setDrawingTool: (t) => set({ drawingTool: t }),
   setGridSize: (m) => set({ gridSizeM: m }),
+  setViewMode: (v) => set({ viewMode: v }),
     }),
     {
       name: 'sap-modeler-v1',

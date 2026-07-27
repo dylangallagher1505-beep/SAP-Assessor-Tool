@@ -5,8 +5,13 @@ import StoryPanel from './StoryPanel'
 import TakeoffPanel from './TakeoffPanel'
 import Toolbar from './Toolbar'
 import FaceEditorPanel from './FaceEditorPanel'
+import { useModelerStore } from '@/lib/modelerStore'
 
 export default function ModelerApp() {
+  const viewMode = useModelerStore((s) => s.viewMode)
+  const show2D = viewMode === '2d' || viewMode === 'split'
+  const show3D = viewMode === '3d' || viewMode === 'split'
+
   return (
     <div className="flex flex-col h-full text-gray-800 overflow-hidden">
       {/* Toolbar */}
@@ -22,15 +27,19 @@ export default function ModelerApp() {
         </div>
 
         {/* Centre: 2D Canvas */}
-        <div className="flex-1 min-w-0 flex flex-col">
-          <DrawingCanvas className="flex-1" />
-        </div>
+        {show2D && (
+          <div className="flex-1 min-w-0 flex flex-col">
+            <DrawingCanvas className="flex-1" />
+          </div>
+        )}
 
         {/* Right: 3D Preview (with face editor overlay) */}
-        <div className="flex-1 min-w-0 flex flex-col gap-3 relative">
-          <ThreeDPreview className="flex-1" />
-          <FaceEditorPanel />
-        </div>
+        {show3D && (
+          <div className="flex-1 min-w-0 flex flex-col gap-3 relative">
+            <ThreeDPreview className="flex-1" />
+            <FaceEditorPanel />
+          </div>
+        )}
 
         {/* Far right: Takeoff */}
         <div className="w-80 shrink-0">

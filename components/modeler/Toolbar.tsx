@@ -1,6 +1,6 @@
 'use client'
-import { MousePointer2, Minus, Pentagon, Layers, RotateCcw, Grid3x3 } from 'lucide-react'
-import { useModelerStore, DrawingTool } from '@/lib/modelerStore'
+import { MousePointer2, Minus, Pentagon, Layers, RotateCcw, Grid3x3, Square, Box, Columns2 } from 'lucide-react'
+import { useModelerStore, DrawingTool, ViewMode } from '@/lib/modelerStore'
 
 const tools: { id: DrawingTool; label: string; icon: React.ReactNode }[] = [
   { id: 'select', label: 'Select', icon: <MousePointer2 size={14} /> },
@@ -35,8 +35,14 @@ function SegButton({ active, onClick, title, children }: {
   )
 }
 
+const viewModes: { id: ViewMode; label: string; icon: React.ReactNode }[] = [
+  { id: '2d', label: '2D', icon: <Square size={14} /> },
+  { id: 'split', label: 'Split', icon: <Columns2 size={14} /> },
+  { id: '3d', label: '3D', icon: <Box size={14} /> },
+]
+
 export default function Toolbar() {
-  const { drawingTool, setDrawingTool, gridSizeM, setGridSize, stories, activeStoryId, setActiveStory } = useModelerStore()
+  const { drawingTool, setDrawingTool, gridSizeM, setGridSize, stories, activeStoryId, setActiveStory, viewMode, setViewMode } = useModelerStore()
 
   function handleNewModel() {
     if (!confirm('Start a new model? All current work will be cleared.')) return
@@ -78,6 +84,15 @@ export default function Toolbar() {
       </div>
 
       <div className="ml-auto flex items-center gap-3">
+        {/* View mode */}
+        <Segmented>
+          {viewModes.map((v) => (
+            <SegButton key={v.id} active={viewMode === v.id} onClick={() => setViewMode(v.id)} title={`${v.label} view`}>
+              {v.icon} {v.label}
+            </SegButton>
+          ))}
+        </Segmented>
+
         {/* Grid size */}
         <div className="flex items-center gap-2">
           <Grid3x3 size={13} className="text-emerald-700/60 shrink-0" />
